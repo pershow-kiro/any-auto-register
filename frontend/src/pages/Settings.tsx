@@ -20,6 +20,7 @@ const SELECT_FIELDS: Record<string, { label: string; value: string }[]> = {
     { label: 'DuckMail（自动生成）', value: 'duckmail' },
     { label: 'MoeMail (sall.cc)', value: 'moemail' },
     { label: 'Freemail（自建 CF Worker）', value: 'freemail' },
+    { label: 'Cloud Mail（公开 API）', value: 'cloudmail' },
     { label: 'CF Worker（自建域名）', value: 'cfworker' },
     { label: 'LuckMail（订单接码 / 已购邮箱）', value: 'luckmail' },
   ],
@@ -81,6 +82,16 @@ const TAB_ITEMS = [
         title: 'MoeMail',
         desc: '自动注册账号并生成临时邮箱',
         fields: [{ key: 'moemail_api_url', label: 'API URL', placeholder: 'https://sall.cc' }],
+      },
+      {
+        title: 'Cloud Mail',
+        desc: '基于 cloud-mail 的公开 API，使用管理员账号批量创建收件邮箱',
+        fields: [
+          { key: 'cloudmail_api_url', label: 'API URL', placeholder: 'https://mail.example.com' },
+          { key: 'cloudmail_admin_email', label: '管理员邮箱', placeholder: 'admin@example.com' },
+          { key: 'cloudmail_admin_password', label: '管理员密码', secret: true },
+          { key: 'cloudmail_domain', label: '默认域名', placeholder: 'mail.example.com' },
+        ],
       },
       {
         title: 'TempMail.lol',
@@ -152,6 +163,17 @@ const TAB_ITEMS = [
         fields: [
           { key: 'team_manager_url', label: 'API URL', placeholder: 'https://your-tm.example.com' },
           { key: 'team_manager_key', label: 'API Key', secret: true },
+        ],
+      },
+      {
+        title: 'Sub2API',
+        desc: '注册成功后自动上传，账号页也支持按 sub2api-data 格式手动/批量上传；填写分组 ID 后会在导入完成后自动绑组',
+        fields: [
+          { key: 'sub2api_url', label: 'API URL', placeholder: 'https://your-sub2api.example.com' },
+          { key: 'sub2api_api_key', label: 'API Key', secret: true },
+          { key: 'sub2api_concurrency', label: '账号并发', placeholder: '默认 3' },
+          { key: 'sub2api_priority', label: '优先级', placeholder: '默认 50' },
+          { key: 'sub2api_group_ids', label: '分组 ID', placeholder: '多个用逗号分隔，例如 1,2,3' },
         ],
       },
     ],

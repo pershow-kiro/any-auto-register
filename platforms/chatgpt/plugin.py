@@ -36,14 +36,19 @@ class ChatGPTPlatform(BasePlatform):
         proxy = self.config.proxy if self.config else None
         browser_mode = (self.config.executor_type if self.config else None) or "protocol"
         log_fn = getattr(self, '_log_fn', print)
-        from platforms.chatgpt.register_v2 import RegistrationEngineV2 as RegistrationEngine
+        from platforms.chatgpt.register_v2 import (
+            RecoverableRegistrationError,
+            RegistrationEngineV2 as RegistrationEngine,
+        )
         log_fn = getattr(self, '_log_fn', print)
         max_retries = 3
+        mail_provider = ""
         if self.config and getattr(self.config, "extra", None):
             try:
                 max_retries = int((self.config.extra or {}).get("register_max_retries", 3) or 3)
             except Exception:
                 max_retries = 3
+            mail_provider = str((self.config.extra or {}).get("mail_provider", "") or "").strip().lower()
 
         if self.mailbox:
             # 通用 EmailService 适配器，支持所有 BaseMailbox 实现 (cfworker, duckmail, laoudo 等)
@@ -84,6 +89,7 @@ class ChatGPTPlatform(BasePlatform):
                 browser_mode=browser_mode,
                 callback_logger=log_fn,
                 max_retries=max_retries,
+                mail_provider=mail_provider,
             )
             engine.email = email
             engine.password = password
@@ -116,6 +122,7 @@ class ChatGPTPlatform(BasePlatform):
                 browser_mode=browser_mode,
                 callback_logger=log_fn,
                 max_retries=max_retries,
+                mail_provider=mail_provider,
             )
             if email:
                 engine.email = email
@@ -123,6 +130,37 @@ class ChatGPTPlatform(BasePlatform):
 
         result = engine.run()
         if not result or not result.success:
+            pending_registration = ((result.metadata or {}).get("pending_registration") if result else None) or {}
+            pending_mail_provider = str(
+                ((result.metadata or {}).get("mail_provider") if result else "") or mail_provider or ""
+            ).strip().lower()
+            if pending_registration and pending_mail_provider in ("cloudmail", "cloud_mail"):
+                partial_extra = {
+                    'mail_provider': pending_mail_provider,
+                    'continue_registration_pending': True,
+                    'continue_registration_url': pending_registration.get('continue_registration_url', ''),
+                    'continue_registration_stage': pending_registration.get('stage', ''),
+                    'continue_registration_reason': pending_registration.get('reason', ''),
+                    'pending_registration': pending_registration,
+                }
+                partial_account = Account(
+                    platform='chatgpt',
+                    email=result.email,
+                    password=result.password or password,
+                    user_id=result.account_id,
+                    token=result.access_token,
+                    status=AccountStatus.INVALID,
+                    extra=partial_extra,
+                )
+                raise RecoverableRegistrationError(
+                    result.error_message if result else '注册失败',
+                    partial_account=partial_account,
+                    detail={
+                        'pending_registration': pending_registration,
+                        'mail_provider': pending_mail_provider,
+                        'recoverable': True,
+                    },
+                )
             raise RuntimeError(result.error_message if result else '注册失败')
 
         return Account(
@@ -133,6 +171,7 @@ class ChatGPTPlatform(BasePlatform):
             token=result.access_token,
             status=AccountStatus.REGISTERED,
             extra={
+                'account_id':    result.account_id,
                 'access_token':  result.access_token,
                 'refresh_token': result.refresh_token,
                 'id_token':      result.id_token,
@@ -144,6 +183,7 @@ class ChatGPTPlatform(BasePlatform):
     def get_platform_actions(self) -> list:
         return [
             {"id": "refresh_token", "label": "刷新 Token", "params": []},
+            {"id": "continue_registration", "label": "继续注册并上传", "params": []},
             {"id": "payment_link", "label": "生成支付链接",
              "params": [
                  {"key": "country", "label": "地区", "type": "select",
@@ -161,6 +201,7 @@ class ChatGPTPlatform(BasePlatform):
                  {"key": "api_url", "label": "TM API URL", "type": "text"},
                  {"key": "api_key", "label": "TM API Key", "type": "text"},
              ]},
+            {"id": "upload_sub2api", "label": "上传 Sub2API", "params": []},
         ]
 
     def execute_action(self, action_id: str, account: Account, params: dict) -> dict:
@@ -175,7 +216,11 @@ class ChatGPTPlatform(BasePlatform):
         a.id_token = extra.get("id_token", "")
         a.session_token = extra.get("session_token", "")
         a.client_id = extra.get("client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
+        a.workspace_id = extra.get("workspace_id") or extra.get("organization_id", "")
+        a.account_id = extra.get("account_id") or account.user_id or ""
+        a.user_id = account.user_id or ""
         a.cookies = extra.get("cookies", "")
+        a.extra = extra
 
         if action_id == "refresh_token":
             from platforms.chatgpt.token_refresh import TokenRefreshManager
@@ -185,6 +230,127 @@ class ChatGPTPlatform(BasePlatform):
                 return {"ok": True, "data": {"access_token": result.access_token,
                         "refresh_token": result.refresh_token}}
             return {"ok": False, "error": result.error_message}
+
+        elif action_id == "continue_registration":
+            from core.base_mailbox import MailboxAccount, create_mailbox
+            from services.external_sync import sync_account
+            from .chatgpt_client import ChatGPTClient
+            from .utils import generate_random_birthday, generate_random_name
+
+            if extra.get("continue_registration_pending") is False and (extra.get("access_token") or account.token):
+                return {"ok": False, "error": "当前账号已经完成注册，无需继续注册"}
+
+            mail_provider = str(extra.get("mail_provider") or (self.config.extra or {}).get("mail_provider", "") or "").strip()
+            if not mail_provider:
+                return {"ok": False, "error": "账号未记录 mail_provider，无法继续注册"}
+
+            mailbox = create_mailbox(
+                provider=mail_provider,
+                extra=(self.config.extra or {}),
+                proxy=proxy,
+            )
+            mailbox._log_fn = getattr(self, '_log_fn', print)
+
+            class ContinueMailboxAdapter:
+                def __init__(self, fixed_email: str):
+                    self.account = MailboxAccount(email=fixed_email, account_id=fixed_email)
+                    self._used_codes = set()
+
+                def wait_for_verification_code(self, email, timeout=60, otp_sent_at=None, exclude_codes=None):
+                    merged_excludes = set(exclude_codes or [])
+                    merged_excludes.update(self._used_codes)
+                    code = mailbox.wait_for_code(
+                        self.account,
+                        keyword="",
+                        timeout=timeout,
+                        otp_sent_at=otp_sent_at,
+                        exclude_codes=merged_excludes,
+                    )
+                    if code:
+                        self._used_codes.add(code)
+                    return code
+
+            first_name, last_name = generate_random_name()
+            birthdate = generate_random_birthday()
+
+            chatgpt_client = ChatGPTClient(
+                proxy=proxy,
+                verbose=False,
+                browser_mode=(self.config.executor_type if self.config else "protocol") or "protocol",
+            )
+            chatgpt_client._log = getattr(self, '_log_fn', print)
+
+            ok, msg = chatgpt_client.continue_registration_flow(
+                account.email,
+                account.password,
+                first_name,
+                last_name,
+                birthdate,
+                ContinueMailboxAdapter(account.email),
+            )
+            if not ok:
+                return {"ok": False, "error": f"继续注册失败: {msg}"}
+
+            session_ok, session_result = chatgpt_client.reuse_session_and_get_tokens()
+            if not session_ok:
+                return {"ok": False, "error": f"继续注册成功，但提取 Session 失败: {session_result}"}
+
+            access_token = session_result.get("access_token", "")
+            updated_extra = {
+                'mail_provider': mail_provider,
+                'access_token': access_token,
+                'refresh_token': extra.get("refresh_token", ""),
+                'id_token': extra.get("id_token", ""),
+                'session_token': session_result.get("session_token", ""),
+                'workspace_id': session_result.get("workspace_id", ""),
+                'account_id': session_result.get("account_id", ""),
+                'auth_provider': session_result.get("auth_provider", ""),
+                'expires': session_result.get("expires", ""),
+                'user': session_result.get("user") or {},
+                'account': session_result.get("account") or {},
+            }
+
+            account.token = access_token
+            account.user_id = session_result.get("account_id") or session_result.get("user_id") or account.user_id
+            account.status = AccountStatus.REGISTERED
+            account.extra = dict(extra)
+            account.extra.update(updated_extra)
+            for key in (
+                'continue_registration_pending',
+                'continue_registration_url',
+                'continue_registration_stage',
+                'continue_registration_reason',
+                'pending_registration',
+            ):
+                account.extra.pop(key, None)
+
+            upload_results = sync_account(account)
+
+            return {
+                "ok": True,
+                "data": {
+                    "message": "继续注册成功",
+                    "access_token": access_token,
+                    "session_token": session_result.get("session_token", ""),
+                    "workspace_id": session_result.get("workspace_id", ""),
+                    "account_id": session_result.get("account_id", ""),
+                    "user_id": session_result.get("user_id", ""),
+                    "auto_upload_results": upload_results,
+                },
+                "account_updates": {
+                    "status": AccountStatus.REGISTERED.value,
+                    "token": access_token,
+                    "user_id": account.user_id,
+                    "extra_updates": updated_extra,
+                    "extra_deletes": [
+                        'continue_registration_pending',
+                        'continue_registration_url',
+                        'continue_registration_stage',
+                        'continue_registration_reason',
+                        'pending_registration',
+                    ],
+                },
+            }
 
         elif action_id == "payment_link":
             from platforms.chatgpt.payment import generate_plus_link, generate_team_link
@@ -207,6 +373,16 @@ class ChatGPTPlatform(BasePlatform):
             from platforms.chatgpt.cpa_upload import upload_to_team_manager
             ok, msg = upload_to_team_manager(a, api_url=params.get("api_url"),
                                              api_key=params.get("api_key"))
+            return {"ok": ok, "data": msg}
+
+        elif action_id == "upload_sub2api":
+            from platforms.chatgpt.sub2api_upload import upload_to_sub2api
+
+            ok, msg = upload_to_sub2api(
+                a,
+                api_url=params.get("api_url"),
+                api_key=params.get("api_key"),
+            )
             return {"ok": ok, "data": msg}
 
         raise NotImplementedError(f"未知操作: {action_id}")

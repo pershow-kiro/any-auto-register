@@ -115,10 +115,11 @@ def _run_register(task_id: str, req: RegisterTaskRequest):
 
         def _do_one(i: int):
             nonlocal next_start_time
+            _proxy = req.proxy
+            merged_extra = {}
             try:
                 from core.proxy_pool import proxy_pool
 
-                _proxy = req.proxy
                 if not _proxy:
                     _proxy = proxy_pool.get_next()
                 if req.register_delay_seconds > 0:
@@ -181,8 +182,22 @@ def _run_register(task_id: str, req: RegisterTaskRequest):
                 return True
             except Exception as e:
                 if _proxy: proxy_pool.report_fail(_proxy)
+                partial_account = getattr(e, "partial_account", None)
+                detail = getattr(e, "detail", None)
+                if partial_account is not None:
+                    try:
+                        if isinstance(partial_account.extra, dict):
+                            mail_provider = merged_extra.get("mail_provider", "")
+                            if mail_provider:
+                                partial_account.extra.setdefault("mail_provider", mail_provider)
+                        save_account(partial_account)
+                        _log(task_id, f"已保存待继续注册账号: {partial_account.email}")
+                    except Exception as save_exc:
+                        _log(task_id, f"保存待继续注册账号失败: {save_exc}")
                 _log(task_id, f"✗ 注册失败: {e}")
-                _save_task_log(req.platform, req.email or "", "failed", error=str(e))
+                failed_email = getattr(partial_account, "email", None) or req.email or ""
+                log_detail = detail if isinstance(detail, dict) else {}
+                _save_task_log(req.platform, failed_email, "failed", error=str(e), detail=log_detail)
                 return str(e)
 
         from concurrent.futures import ThreadPoolExecutor, as_completed

@@ -36,6 +36,29 @@ class BatchDeleteRequest(BaseModel):
     ids: list[int]
 
 
+class BatchSub2ApiUploadRequest(BaseModel):
+    ids: list[int]
+    group_ids: list[int] | None = None
+
+
+def _to_chatgpt_upload_account(acc: AccountModel):
+    extra = acc.get_extra()
+
+    class _Acc:
+        pass
+
+    a = _Acc()
+    a.email = acc.email
+    a.access_token = extra.get("access_token") or acc.token
+    a.refresh_token = extra.get("refresh_token", "")
+    a.client_id = extra.get("client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
+    a.workspace_id = extra.get("workspace_id") or extra.get("organization_id", "")
+    a.account_id = extra.get("account_id") or acc.user_id or ""
+    a.user_id = acc.user_id or ""
+    a.extra = extra
+    return a
+
+
 @router.get("")
 def list_accounts(
     platform: Optional[str] = None,
@@ -178,6 +201,66 @@ def batch_delete_accounts(
         session.rollback()
         logger.exception("批量删除失败")
         raise HTTPException(500, f"批量删除失败: {str(e)}")
+
+
+@router.post("/batch-upload-sub2api")
+def batch_upload_sub2api(
+    body: BatchSub2ApiUploadRequest,
+    session: Session = Depends(get_session),
+):
+    if not body.ids:
+        raise HTTPException(400, "账号 ID 列表不能为空")
+
+    unique_ids = list(dict.fromkeys(body.ids))
+    if len(unique_ids) > 1000:
+        raise HTTPException(400, "单次最多上传 1000 个账号")
+
+    results = {
+        "success_count": 0,
+        "failed_count": 0,
+        "skipped_count": 0,
+        "details": [],
+    }
+
+    upload_candidates = []
+    valid_accounts = []
+
+    for account_id in unique_ids:
+        acc = session.get(AccountModel, account_id)
+        if not acc:
+            results["failed_count"] += 1
+            results["details"].append({"id": account_id, "email": None, "success": False, "error": "账号不存在"})
+            continue
+        if acc.platform != "chatgpt":
+            results["skipped_count"] += 1
+            results["details"].append({"id": account_id, "email": acc.email, "success": False, "error": "仅支持上传 ChatGPT 账号"})
+            continue
+
+        upload_account = _to_chatgpt_upload_account(acc)
+        if not upload_account.access_token:
+            results["skipped_count"] += 1
+            results["details"].append({"id": account_id, "email": acc.email, "success": False, "error": "缺少 access_token"})
+            continue
+
+        valid_accounts.append(acc)
+        upload_candidates.append(upload_account)
+
+    if not upload_candidates:
+        return results
+
+    from platforms.chatgpt.sub2api_upload import upload_to_sub2api
+
+    success, message = upload_to_sub2api(upload_candidates, group_ids=body.group_ids)
+    if success:
+        for acc in valid_accounts:
+            results["success_count"] += 1
+            results["details"].append({"id": acc.id, "email": acc.email, "success": True, "message": message})
+    else:
+        for acc in valid_accounts:
+            results["failed_count"] += 1
+            results["details"].append({"id": acc.id, "email": acc.email, "success": False, "error": message})
+
+    return results
 
 
 @router.post("/check-all")

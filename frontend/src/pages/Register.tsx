@@ -46,6 +46,10 @@ export default function Register() {
         freemail_admin_token: cfg.freemail_admin_token || '',
         freemail_username: cfg.freemail_username || '',
         freemail_password: cfg.freemail_password || '',
+        cloudmail_api_url: cfg.cloudmail_api_url || '',
+        cloudmail_admin_email: cfg.cloudmail_admin_email || '',
+        cloudmail_admin_password: cfg.cloudmail_admin_password || '',
+        cloudmail_domain: cfg.cloudmail_domain || '',
         cfworker_api_url: cfg.cfworker_api_url || '',
         cfworker_admin_token: cfg.cfworker_admin_token || '',
         cfworker_domain: cfg.cfworker_domain || '',
@@ -84,6 +88,10 @@ export default function Register() {
           freemail_admin_token: values.freemail_admin_token,
           freemail_username: values.freemail_username,
           freemail_password: values.freemail_password,
+          cloudmail_api_url: values.cloudmail_api_url,
+          cloudmail_admin_email: values.cloudmail_admin_email,
+          cloudmail_admin_password: values.cloudmail_admin_password,
+          cloudmail_domain: values.cloudmail_domain,
           cfworker_api_url: values.cfworker_api_url,
           cfworker_admin_token: values.cfworker_admin_token,
           cfworker_domain: values.cfworker_domain,
@@ -194,6 +202,7 @@ export default function Register() {
                 { value: 'tempmail_lol', label: 'TempMail.lol' },
                 { value: 'duckmail', label: 'DuckMail' },
                 { value: 'freemail', label: 'Freemail' },
+                { value: 'cloudmail', label: 'Cloud Mail' },
                 { value: 'laoudo', label: 'Laoudo' },
                 { value: 'cfworker', label: 'CF Worker' },
                 { value: 'luckmail', label: 'LuckMail' },
@@ -210,6 +219,22 @@ export default function Register() {
               </Form.Item>
               <Form.Item name="laoudo_auth" label="JWT Token">
                 <Input placeholder="eyJ..." />
+              </Form.Item>
+            </>
+          )}
+          {mailProvider === 'cloudmail' && (
+            <>
+              <Form.Item name="cloudmail_api_url" label="API URL">
+                <Input placeholder="https://mail.example.com" />
+              </Form.Item>
+              <Form.Item name="cloudmail_admin_email" label="管理员邮箱">
+                <Input placeholder="admin@example.com" />
+              </Form.Item>
+              <Form.Item name="cloudmail_admin_password" label="管理员密码">
+                <Input.Password placeholder="请输入管理员密码" />
+              </Form.Item>
+              <Form.Item name="cloudmail_domain" label="默认域名">
+                <Input placeholder="mail.example.com" />
               </Form.Item>
             </>
           )}

@@ -107,6 +107,16 @@ def create_mailbox(provider: str, extra: dict = None, proxy: str = None) -> 'Bas
             password=extra.get("freemail_password", ""),
             proxy=proxy,
         )
+    elif provider in ("cloudmail", "cloud_mail"):
+        from .cloudmail_mailbox import CloudMailMailbox
+
+        return CloudMailMailbox(
+            api_url=extra.get("cloudmail_api_url", ""),
+            admin_email=extra.get("cloudmail_admin_email", ""),
+            admin_password=extra.get("cloudmail_admin_password", ""),
+            domain=extra.get("cloudmail_domain", ""),
+            proxy=proxy,
+        )
     elif provider == "moemail":
         return MoeMailMailbox(
             api_url=extra.get("moemail_api_url", "https://sall.cc"),

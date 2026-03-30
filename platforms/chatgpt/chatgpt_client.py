@@ -6,7 +6,7 @@ ChatGPT 注册客户端模块
 import random
 import uuid
 import time
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 try:
     from curl_cffi import requests as curl_requests
@@ -111,6 +111,7 @@ class ChatGPTClient:
         # 设置 oai-did cookie
         seed_oai_device_cookie(self.session, self.device_id)
         self.last_registration_state = FlowState()
+        self.pending_registration = None
     
     def _log(self, msg):
         """输出日志"""
@@ -121,6 +122,47 @@ class ChatGPTClient:
         """在 headed 模式下加入轻微停顿，模拟有头浏览器节奏。"""
         if self.browser_mode == "headed":
             random_delay(low, high)
+
+    def _build_continue_registration_url(self, email):
+        """构造 ChatGPT 续注册链接。"""
+        encoded_email = quote(str(email or "").strip(), safe="")
+        return (
+            f"{self.BASE}/continue-registration?email={encoded_email}"
+            "&connection=password"
+            "&utm_campaign=utm_campaign"
+            "&utm_content=utm_content"
+            "&utm_medium=email"
+            "&utm_source=sendgrid"
+            "&utm_term=utm_term"
+        )
+
+    def _remember_pending_registration(self, email, password, *, reason="", stage="", state=None):
+        """保存可通过 continue-registration 恢复的账号信息。"""
+        email = str(email or "").strip()
+        password = str(password or "")
+        if not email or not password:
+            return
+
+        snapshot = state if isinstance(state, FlowState) else (self.last_registration_state or FlowState())
+        payload = {
+            "email": email,
+            "reason": str(reason or "").strip(),
+            "stage": str(stage or "").strip(),
+            "continue_registration_url": self._build_continue_registration_url(email),
+            "last_state": {
+                "page_type": snapshot.page_type,
+                "method": snapshot.method,
+                "continue_url": snapshot.continue_url,
+                "current_url": snapshot.current_url,
+            },
+        }
+        self.pending_registration = payload
+        self._log(f"已保留待续注册账号: {email}")
+        self._log(f"继续注册链接: {payload['continue_registration_url']}")
+
+    def get_pending_registration(self):
+        """返回最近一次保存的待续注册上下文。"""
+        return dict(self.pending_registration or {})
 
     def _headers(
         self,
@@ -430,6 +472,74 @@ class ChatGPTClient:
             self._log(f"获取 CSRF token 失败: {e}")
         
         return None
+
+    def open_continue_registration(self, email, max_retries=3):
+        """
+        打开 ChatGPT 续注册链接并解析当前状态。
+
+        Returns:
+            tuple: (success, FlowState|str)
+        """
+        continue_url = self._build_continue_registration_url(email)
+
+        for attempt in range(max_retries):
+            if attempt > 0:
+                self._log(f"打开续注册链接重试 {attempt + 1}/{max_retries} ...")
+                self._reset_session()
+
+            if not self.visit_homepage():
+                if attempt < max_retries - 1:
+                    continue
+                return False, "访问首页失败"
+
+            try:
+                self._browser_pause()
+                r = self.session.get(
+                    continue_url,
+                    headers=self._headers(
+                        continue_url,
+                        accept="text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        referer=f"{self.BASE}/",
+                        navigation=True,
+                    ),
+                    allow_redirects=True,
+                    timeout=30,
+                )
+
+                final_url = str(r.url)
+                final_path = urlparse(final_url).path
+                self._log(f"continue-registration -> {r.status_code} {final_url}")
+
+                if r.status_code >= 400:
+                    if attempt < max_retries - 1:
+                        continue
+                    return False, f"continue-registration -> HTTP {r.status_code}"
+
+                content_type = (r.headers.get("content-type", "") or "").lower()
+                if "application/json" in content_type:
+                    try:
+                        next_state = self._state_from_payload(r.json(), current_url=final_url)
+                    except Exception:
+                        next_state = self._state_from_url(final_url)
+                else:
+                    next_state = self._state_from_url(final_url)
+
+                if "api/accounts/authorize" in final_path or final_path == "/error":
+                    self._log(f"续注册链接被中间页拦截，准备重试: {final_url[:160]}...")
+                    if attempt < max_retries - 1:
+                        continue
+                    return False, f"续注册链接被拦截: {final_path}"
+
+                self.last_registration_state = next_state
+                self._log(f"续注册状态起点: {describe_flow_state(next_state)}")
+                return True, next_state
+            except Exception as e:
+                self._log(f"打开续注册链接异常: {e}")
+                if attempt < max_retries - 1:
+                    continue
+                return False, str(e)
+
+        return False, "打开续注册链接失败"
     
     def signin(self, email, csrf_token):
         """
@@ -740,7 +850,8 @@ class ChatGPTClient:
             tuple: (success, message)
         """
         from urllib.parse import urlparse
-        
+
+        self.pending_registration = None
         max_auth_attempts = 3
         final_url = ""
         final_path = ""
@@ -804,6 +915,7 @@ class ChatGPTClient:
                 return False, f"注册状态卡住: {describe_flow_state(state)}"
 
             if self._is_registration_complete_state(state):
+                self.pending_registration = None
                 self.last_registration_state = state
                 self._log("✅ 注册流程完成")
                 return True, "注册成功"
@@ -845,6 +957,13 @@ class ChatGPTClient:
                     return_state=True,
                 )
                 if not success:
+                    self._remember_pending_registration(
+                        email,
+                        password,
+                        reason=f"创建账号失败: {next_state}",
+                        stage="about_you",
+                        state=state,
+                    )
                     return False, f"创建账号失败: {next_state}"
                 account_created = True
                 state = next_state
@@ -870,3 +989,92 @@ class ChatGPTClient:
             return False, f"未支持的注册状态: {describe_flow_state(state)}"
 
         return False, "注册状态机超出最大步数"
+
+    def continue_registration_flow(self, email, password, first_name, last_name, birthdate, skymail_client):
+        """
+        通过 continue-registration 链接继续未完成的注册流程。
+
+        Returns:
+            tuple: (success, message)
+        """
+        self.pending_registration = None
+
+        success, state_or_error = self.open_continue_registration(email)
+        if not success:
+            return False, state_or_error
+
+        state = state_or_error
+        otp_verified = False
+        account_created = False
+        seen_states = {}
+
+        for _ in range(12):
+            signature = self._state_signature(state)
+            seen_states[signature] = seen_states.get(signature, 0) + 1
+            if seen_states[signature] > 2:
+                return False, f"续注册状态卡住: {describe_flow_state(state)}"
+
+            if self._is_registration_complete_state(state):
+                self.pending_registration = None
+                self.last_registration_state = state
+                self._log("✅ 续注册流程完成")
+                return True, "续注册成功"
+
+            if self._state_is_email_otp(state):
+                self._log("等待邮箱验证码...")
+                otp_code = skymail_client.wait_for_verification_code(email, timeout=60)
+                if not otp_code:
+                    self._log("首次等待未收到验证码，尝试重新触发发送...")
+                    if self.send_email_otp():
+                        otp_code = skymail_client.wait_for_verification_code(email, timeout=60)
+                if not otp_code:
+                    return False, "未收到验证码"
+
+                success, next_state = self.verify_email_otp(otp_code, return_state=True)
+                if not success:
+                    return False, f"验证码失败: {next_state}"
+                otp_verified = True
+                state = next_state
+                self.last_registration_state = state
+                continue
+
+            if self._state_is_about_you(state):
+                if account_created:
+                    return False, "填写信息阶段重复进入"
+                success, next_state = self.create_account(
+                    first_name,
+                    last_name,
+                    birthdate,
+                    return_state=True,
+                )
+                if not success:
+                    self._remember_pending_registration(
+                        email,
+                        password,
+                        reason=f"创建账号失败: {next_state}",
+                        stage="about_you",
+                        state=state,
+                    )
+                    return False, f"创建账号失败: {next_state}"
+                account_created = True
+                state = next_state
+                self.last_registration_state = state
+                continue
+
+            if self._state_is_password_registration(state):
+                return False, "续注册流程回到了密码页，请重新执行注册"
+
+            if self._state_requires_navigation(state):
+                success, next_state = self._follow_flow_state(
+                    state,
+                    referer=state.current_url or f"{self.BASE}/continue-registration",
+                )
+                if not success:
+                    return False, f"跳转失败: {next_state}"
+                state = next_state
+                self.last_registration_state = state
+                continue
+
+            return False, f"未支持的续注册状态: {describe_flow_state(state)}"
+
+        return False, "续注册状态机超出最大步数"

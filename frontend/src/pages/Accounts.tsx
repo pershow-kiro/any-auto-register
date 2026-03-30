@@ -140,7 +140,8 @@ function ActionMenu({ acc, onRefresh }: { acc: any; onRefresh: () => void }) {
       if (data.url || data.checkout_url || data.cashier_url) {
         window.open(data.url || data.checkout_url || data.cashier_url, '_blank')
       } else {
-        message.success(data.message || '操作成功')
+        const successText = typeof data === 'string' ? data : data.message || '操作成功'
+        message.success(successText)
       }
       onRefresh()
     } catch {
@@ -243,6 +244,20 @@ export default function Accounts() {
     load()
   }
 
+  const handleBatchUploadSub2Api = async () => {
+    if (selectedRowKeys.length === 0) return
+    const res = await apiFetch('/accounts/batch-upload-sub2api', {
+      method: 'POST',
+      body: JSON.stringify({ ids: Array.from(selectedRowKeys) }),
+    })
+    if (res.success_count > 0) {
+      message.success(`Sub2API 上传完成：成功 ${res.success_count}，跳过 ${res.skipped_count}，失败 ${res.failed_count}`)
+    } else {
+      const firstError = res.details?.find((item: any) => !item.success)?.error || '没有可上传的账号'
+      message.error(firstError)
+    }
+  }
+
   const handleAdd = async () => {
     const values = await addForm.validateFields()
     await apiFetch('/accounts', {
@@ -307,10 +322,18 @@ export default function Accounts() {
             freemail_admin_token: cfg.freemail_admin_token,
             freemail_username: cfg.freemail_username,
             freemail_password: cfg.freemail_password,
+            cloudmail_api_url: cfg.cloudmail_api_url,
+            cloudmail_admin_email: cfg.cloudmail_admin_email,
+            cloudmail_admin_password: cfg.cloudmail_admin_password,
+            cloudmail_domain: cfg.cloudmail_domain,
             cfworker_api_url: cfg.cfworker_api_url,
             cfworker_admin_token: cfg.cfworker_admin_token,
             cfworker_domain: cfg.cfworker_domain,
             cfworker_fingerprint: cfg.cfworker_fingerprint,
+            luckmail_base_url: cfg.luckmail_base_url,
+            luckmail_api_key: cfg.luckmail_api_key,
+            luckmail_email_type: cfg.luckmail_email_type,
+            luckmail_domain: cfg.luckmail_domain,
           },
         }),
       })
@@ -437,6 +460,11 @@ export default function Accounts() {
             <Popconfirm title={`确认删除选中的 ${selectedRowKeys.length} 个账号？`} onConfirm={handleBatchDelete}>
               <Button danger icon={<DeleteOutlined />}>删除 {selectedRowKeys.length} 个</Button>
             </Popconfirm>
+          )}
+          {currentPlatform === 'chatgpt' && selectedRowKeys.length > 0 && (
+            <Button icon={<LinkOutlined />} onClick={handleBatchUploadSub2Api}>
+              上传 Sub2API
+            </Button>
           )}
           <Button icon={<UploadOutlined />} onClick={() => setImportModalOpen(true)}>导入</Button>
           <Button icon={<DownloadOutlined />} onClick={exportCsv} disabled={accounts.length === 0}>导出</Button>

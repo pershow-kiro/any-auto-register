@@ -37,6 +37,15 @@ class EmailServiceAdapter:
             self.log_fn(f"\u6210\u529f\u83b7\u53d6\u9a8c\u8bc1\u7801: {code}")
         return code
 
+
+class RecoverableRegistrationError(RuntimeError):
+    """携带可恢复账号信息的注册异常。"""
+
+    def __init__(self, message: str, *, partial_account=None, detail: Optional[dict] = None):
+        super().__init__(message)
+        self.partial_account = partial_account
+        self.detail = detail or {}
+
 class RegistrationEngineV2:
     def __init__(
         self,
@@ -46,6 +55,7 @@ class RegistrationEngineV2:
         callback_logger: Optional[Callable[[str], None]] = None,
         task_uuid: Optional[str] = None,
         max_retries: int = 3,
+        mail_provider: Optional[str] = None,
     ):
         self.email_service = email_service
         self.proxy_url = proxy_url
@@ -53,6 +63,7 @@ class RegistrationEngineV2:
         self.callback_logger = callback_logger
         self.task_uuid = task_uuid
         self.max_retries = max(1, int(max_retries or 1))
+        self.mail_provider = str(mail_provider or "").strip().lower()
         
         self.email = None
         self.password = None
@@ -144,7 +155,16 @@ class RegistrationEngineV2:
                     )
 
                     if not success:
+                        pending_registration = chatgpt_client.get_pending_registration()
                         last_error = f"注册流失败: {msg}"
+                        if pending_registration and self.mail_provider in ("cloudmail", "cloud_mail"):
+                            self._log("检测到 Cloud Mail 可续注册账号，停止重试并保留账号信息")
+                            result.error_message = last_error
+                            result.metadata = {
+                                "pending_registration": pending_registration,
+                                "mail_provider": self.mail_provider,
+                            }
+                            return result
                         if attempt < self.max_retries - 1 and self._should_retry(msg):
                             self._log(f"注册流失败，准备整流程重试: {msg}")
                             continue
