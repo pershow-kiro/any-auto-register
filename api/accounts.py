@@ -41,6 +41,22 @@ class BatchSub2ApiUploadRequest(BaseModel):
     group_ids: list[int] | None = None
 
 
+def _apply_account_filters(query, platform: Optional[str] = None,
+                           status: Optional[str] = None,
+                           email: Optional[str] = None):
+    if platform:
+        query = query.where(AccountModel.platform == platform)
+    if status:
+        query = query.where(AccountModel.status == status)
+    if email:
+        query = query.where(AccountModel.email.contains(email))
+    return query
+
+
+def _apply_account_order(query):
+    return query.order_by(AccountModel.created_at.desc(), AccountModel.id.desc())
+
+
 def _to_chatgpt_upload_account(acc: AccountModel):
     extra = acc.get_extra()
 
@@ -68,16 +84,29 @@ def list_accounts(
     page_size: int = 20,
     session: Session = Depends(get_session),
 ):
-    q = select(AccountModel)
-    if platform:
-        q = q.where(AccountModel.platform == platform)
-    if status:
-        q = q.where(AccountModel.status == status)
-    if email:
-        q = q.where(AccountModel.email.contains(email))
-    total = len(session.exec(q).all())
-    items = session.exec(q.offset((page - 1) * page_size).limit(page_size)).all()
-    return {"total": total, "page": page, "items": items}
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 200)
+
+    total_query = _apply_account_filters(
+        select(func.count()).select_from(AccountModel),
+        platform=platform,
+        status=status,
+        email=email,
+    )
+    total = session.exec(total_query).one() or 0
+
+    items_query = _apply_account_order(
+        _apply_account_filters(
+            select(AccountModel),
+            platform=platform,
+            status=status,
+            email=email,
+        )
+    )
+    items = session.exec(
+        items_query.offset((page - 1) * page_size).limit(page_size)
+    ).all()
+    return {"total": total, "page": page, "page_size": page_size, "items": items}
 
 
 @router.post("")
@@ -112,13 +141,17 @@ def get_stats(session: Session = Depends(get_session)):
 def export_accounts(
     platform: Optional[str] = None,
     status: Optional[str] = None,
+    email: Optional[str] = None,
     session: Session = Depends(get_session),
 ):
-    q = select(AccountModel)
-    if platform:
-        q = q.where(AccountModel.platform == platform)
-    if status:
-        q = q.where(AccountModel.status == status)
+    q = _apply_account_order(
+        _apply_account_filters(
+            select(AccountModel),
+            platform=platform,
+            status=status,
+            email=email,
+        )
+    )
     accounts = session.exec(q).all()
 
     output = io.StringIO()

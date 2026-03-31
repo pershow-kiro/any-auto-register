@@ -191,11 +191,8 @@ function ActionMenu({ acc, onRefresh }: { acc: any; onRefresh: () => void }) {
         message.success('链接已生成')
         showResult(actionLabel, 'success', '操作成功，请在弹窗中打开或复制链接。', targetUrl)
       } else {
-<<<<<<< HEAD
         const successText = typeof data === 'string' ? data : data.message || '操作成功'
         message.success(successText)
-=======
-        message.success(data.message || '操作成功')
         const text =
           typeof data === 'string'
             ? data
@@ -203,7 +200,6 @@ function ActionMenu({ acc, onRefresh }: { acc: any; onRefresh: () => void }) {
               ? JSON.stringify(data, null, 2)
               : '操作成功'
         showResult(actionLabel, 'success', text)
->>>>>>> origin/main
       }
       onRefresh()
     } catch (e: any) {
@@ -467,19 +463,16 @@ export default function Accounts() {
             cfworker_custom_auth: cfg.cfworker_custom_auth,
             cfworker_domain: cfg.cfworker_domain,
             cfworker_fingerprint: cfg.cfworker_fingerprint,
-<<<<<<< HEAD
             luckmail_base_url: cfg.luckmail_base_url,
             luckmail_api_key: cfg.luckmail_api_key,
             luckmail_email_type: cfg.luckmail_email_type,
             luckmail_domain: cfg.luckmail_domain,
-=======
             smstome_cookie: cfg.smstome_cookie,
             smstome_country_slugs: cfg.smstome_country_slugs,
             smstome_phone_attempts: cfg.smstome_phone_attempts,
             smstome_otp_timeout_seconds: cfg.smstome_otp_timeout_seconds,
             smstome_poll_interval_seconds: cfg.smstome_poll_interval_seconds,
             smstome_sync_max_pages_per_country: cfg.smstome_sync_max_pages_per_country,
->>>>>>> origin/main
           },
         }),
       })

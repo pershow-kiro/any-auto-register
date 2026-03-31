@@ -21,11 +21,8 @@ CONFIG_KEYS = [
     "luckmail_base_url", "luckmail_api_key", "luckmail_email_type", "luckmail_domain",
     "cpa_api_url", "cpa_api_key",
     "team_manager_url", "team_manager_key",
-<<<<<<< HEAD
     "sub2api_url", "sub2api_api_key", "sub2api_concurrency", "sub2api_priority", "sub2api_group_ids",
-=======
     "codex_proxy_url", "codex_proxy_key", "codex_proxy_upload_type",
->>>>>>> origin/main
     "cliproxyapi_management_key",
     "grok2api_url", "grok2api_app_key", "grok2api_pool", "grok2api_quota",
     "kiro_manager_path", "kiro_manager_exe",

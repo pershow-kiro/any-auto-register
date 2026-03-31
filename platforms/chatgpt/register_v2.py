@@ -56,11 +56,8 @@ class RegistrationEngineV2:
         callback_logger: Optional[Callable[[str], None]] = None,
         task_uuid: Optional[str] = None,
         max_retries: int = 3,
-<<<<<<< HEAD
         mail_provider: Optional[str] = None,
-=======
         extra_config: Optional[dict] = None,
->>>>>>> origin/main
     ):
         self.email_service = email_service
         self.proxy_url = proxy_url
@@ -68,11 +65,8 @@ class RegistrationEngineV2:
         self.callback_logger = callback_logger
         self.task_uuid = task_uuid
         self.max_retries = max(1, int(max_retries or 1))
-<<<<<<< HEAD
-        self.mail_provider = str(mail_provider or "").strip().lower()
-=======
         self.extra_config = dict(extra_config or {})
->>>>>>> origin/main
+        self.mail_provider = str(mail_provider or self.extra_config.get("mail_provider", "") or "").strip().lower()
         
         self.email = None
         self.password = None

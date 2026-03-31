@@ -95,7 +95,6 @@ const TAB_ITEMS = [
         fields: [{ key: 'moemail_api_url', label: 'API URL', placeholder: 'https://sall.cc' }],
       },
       {
-<<<<<<< HEAD
         title: 'Cloud Mail',
         desc: '基于 cloud-mail 的公开 API，使用管理员账号批量创建收件邮箱',
         fields: [
@@ -103,7 +102,9 @@ const TAB_ITEMS = [
           { key: 'cloudmail_admin_email', label: '管理员邮箱', placeholder: 'admin@example.com' },
           { key: 'cloudmail_admin_password', label: '管理员密码', secret: true },
           { key: 'cloudmail_domain', label: '默认域名', placeholder: 'mail.example.com' },
-=======
+        ],
+      },
+      {
         title: 'YYDS Mail / MaliAPI',
         desc: '基于 API Key 创建临时邮箱并轮询收件箱消息',
         fields: [
@@ -111,7 +112,6 @@ const TAB_ITEMS = [
           { key: 'maliapi_api_key', label: 'API Key', secret: true },
           { key: 'maliapi_domain', label: '邮箱域名（可选）', placeholder: 'example.com' },
           { key: 'maliapi_auto_domain_strategy', label: '自动域名策略', type: 'select' },
->>>>>>> origin/main
         ],
       },
       {
@@ -187,7 +187,6 @@ const TAB_ITEMS = [
         ],
       },
       {
-<<<<<<< HEAD
         title: 'Sub2API',
         desc: '注册成功后自动上传，账号页也支持按 sub2api-data 格式手动/批量上传；填写分组 ID 后会在导入完成后自动绑组',
         fields: [
@@ -196,7 +195,9 @@ const TAB_ITEMS = [
           { key: 'sub2api_concurrency', label: '账号并发', placeholder: '默认 3' },
           { key: 'sub2api_priority', label: '优先级', placeholder: '默认 50' },
           { key: 'sub2api_group_ids', label: '分组 ID', placeholder: '多个用逗号分隔，例如 1,2,3' },
-=======
+        ],
+      },
+      {
         title: 'CodexProxy',
         desc: '注册完成后自动上传到 CodexProxy 管理平台',
         fields: [
@@ -215,7 +216,6 @@ const TAB_ITEMS = [
           { key: 'smstome_otp_timeout_seconds', label: '短信等待秒数', placeholder: '45' },
           { key: 'smstome_poll_interval_seconds', label: '轮询间隔秒数', placeholder: '5' },
           { key: 'smstome_sync_max_pages_per_country', label: '每国同步页数', placeholder: '5' },
->>>>>>> origin/main
         ],
       },
     ],

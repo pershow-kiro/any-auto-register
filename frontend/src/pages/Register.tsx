@@ -247,7 +247,6 @@ export default function Register() {
               </Form.Item>
             </>
           )}
-<<<<<<< HEAD
           {mailProvider === 'cloudmail' && (
             <>
               <Form.Item name="cloudmail_api_url" label="API URL">
@@ -261,7 +260,9 @@ export default function Register() {
               </Form.Item>
               <Form.Item name="cloudmail_domain" label="默认域名">
                 <Input placeholder="mail.example.com" />
-=======
+              </Form.Item>
+            </>
+          )}
           {mailProvider === 'maliapi' && (
             <>
               <Form.Item name="maliapi_base_url" label="API URL">
@@ -281,7 +282,6 @@ export default function Register() {
                     { value: 'prefer_public', label: 'prefer_public' },
                   ]}
                 />
->>>>>>> origin/main
               </Form.Item>
             </>
           )}

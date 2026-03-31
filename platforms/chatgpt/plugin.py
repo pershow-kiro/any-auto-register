@@ -89,11 +89,8 @@ class ChatGPTPlatform(BasePlatform):
                 browser_mode=browser_mode,
                 callback_logger=log_fn,
                 max_retries=max_retries,
-<<<<<<< HEAD
                 mail_provider=mail_provider,
-=======
                 extra_config=(self.config.extra or {}),
->>>>>>> origin/main
             )
             engine.email = email
             engine.password = password
@@ -126,11 +123,8 @@ class ChatGPTPlatform(BasePlatform):
                 browser_mode=browser_mode,
                 callback_logger=log_fn,
                 max_retries=max_retries,
-<<<<<<< HEAD
                 mail_provider=mail_provider,
-=======
                 extra_config=(self.config.extra or {}),
->>>>>>> origin/main
             )
             if email:
                 engine.email = email
@@ -209,15 +203,14 @@ class ChatGPTPlatform(BasePlatform):
                  {"key": "api_url", "label": "TM API URL", "type": "text"},
                  {"key": "api_key", "label": "TM API Key", "type": "text"},
              ]},
-<<<<<<< HEAD
             {"id": "upload_sub2api", "label": "上传 Sub2API", "params": []},
-=======
             {"id": "upload_codex_proxy", "label": "上传 CodexProxy",
              "params": [
                  {"key": "api_url", "label": "API URL", "type": "text"},
                  {"key": "api_key", "label": "Admin Key", "type": "text"},
+                 {"key": "upload_type", "label": "上传类型", "type": "select",
+                  "options": ["at", "rt"]},
              ]},
->>>>>>> origin/main
         ]
 
     def execute_action(self, action_id: str, account: Account, params: dict) -> dict:
@@ -398,7 +391,6 @@ class ChatGPTPlatform(BasePlatform):
                                              api_key=params.get("api_key"))
             return {"ok": ok, "data": msg}
 
-<<<<<<< HEAD
         elif action_id == "upload_sub2api":
             from platforms.chatgpt.sub2api_upload import upload_to_sub2api
 
@@ -407,12 +399,30 @@ class ChatGPTPlatform(BasePlatform):
                 api_url=params.get("api_url"),
                 api_key=params.get("api_key"),
             )
-=======
+            return {"ok": ok, "data": msg}
+
         elif action_id == "upload_codex_proxy":
-            from platforms.chatgpt.cpa_upload import upload_to_codex_proxy
-            ok, msg = upload_to_codex_proxy(a, api_url=params.get("api_url"),
-                                            api_key=params.get("api_key"))
->>>>>>> origin/main
+            upload_type = str(
+                params.get("upload_type")
+                or (self.config.extra or {}).get("codex_proxy_upload_type", "at")
+                or "at"
+            ).strip().lower()
+            if upload_type == "at":
+                from platforms.chatgpt.cpa_upload import upload_at_to_codex_proxy
+
+                ok, msg = upload_at_to_codex_proxy(
+                    a,
+                    api_url=params.get("api_url"),
+                    api_key=params.get("api_key"),
+                )
+            else:
+                from platforms.chatgpt.cpa_upload import upload_to_codex_proxy
+
+                ok, msg = upload_to_codex_proxy(
+                    a,
+                    api_url=params.get("api_url"),
+                    api_key=params.get("api_key"),
+                )
             return {"ok": ok, "data": msg}
 
         raise NotImplementedError(f"未知操作: {action_id}")

@@ -52,7 +52,7 @@ def execute_action(
 
     try:
         result = instance.execute_action(action_id, account, body.params)
-<<<<<<< HEAD
+        should_commit = False
         if result.get("ok"):
             account_updates = result.get("account_updates")
             if isinstance(account_updates, dict):
@@ -73,6 +73,7 @@ def execute_action(
 
                 if changed:
                     acc_model.set_extra(extra)
+                    should_commit = True
 
                 if "status" in account_updates:
                     acc_model.status = str(account_updates.get("status") or acc_model.status)
@@ -95,24 +96,8 @@ def execute_action(
 
                     acc_model.updated_at = datetime.now(timezone.utc)
                     session.add(acc_model)
-                    session.commit()
-            elif result.get("data", {}) and isinstance(result["data"], dict):
-                # 若操作返回了新 token，更新数据库
-                data = result["data"]
-                tracked_keys = {"access_token", "accessToken", "refreshToken", "clientId", "clientSecret", "webAccessToken"}
-                if tracked_keys.intersection(data.keys()):
-                    extra = acc_model.get_extra()
-                    extra.update(data)
-                    acc_model.set_extra(extra)
-                    if data.get("access_token"):
-                        acc_model.token = data["access_token"]
-                    elif data.get("accessToken"):
-                        acc_model.token = data["accessToken"]
-                    from datetime import datetime, timezone
-                    acc_model.updated_at = datetime.now(timezone.utc)
-                    session.add(acc_model)
-                    session.commit()
-=======
+                    should_commit = True
+
         if platform == "chatgpt" and action_id == "upload_cpa":
             from services.chatgpt_sync import update_account_model_cpa_sync
 
@@ -124,6 +109,8 @@ def execute_action(
                 session=session,
                 commit=False,
             )
+            should_commit = True
+
         # 若操作返回了新 token，更新数据库
         if result.get("ok") and result.get("data", {}) and isinstance(result["data"], dict):
             data = result["data"]
@@ -139,8 +126,10 @@ def execute_action(
                 from datetime import datetime, timezone
                 acc_model.updated_at = datetime.now(timezone.utc)
                 session.add(acc_model)
-        session.commit()
->>>>>>> origin/main
+                should_commit = True
+
+        if should_commit:
+            session.commit()
         return result
     except NotImplementedError as e:
         raise HTTPException(400, str(e))
