@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from services.chatgpt_sync import persist_cpa_sync_result, upload_chatgpt_account_to_cpa
+from services.chatgpt_sync import (
+    _get_account_extra,
+    persist_cpa_sync_result,
+    upload_chatgpt_account_to_cpa,
+)
 
 
 def sync_account(account) -> list[dict[str, Any]]:
@@ -14,8 +18,28 @@ def sync_account(account) -> list[dict[str, Any]]:
     platform = getattr(account, "platform", "")
     results: list[dict[str, Any]] = []
 
+    def _build_chatgpt_upload_account():
+        class _A:
+            pass
+
+        a = _A()
+        a.email = account.email
+        extra = _get_account_extra(account)
+        a.access_token = extra.get("access_token") or account.token
+        a.refresh_token = extra.get("refresh_token", "")
+        a.id_token = extra.get("id_token", "")
+        a.session_token = extra.get("session_token", "")
+        a.client_id = extra.get("client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
+        a.workspace_id = extra.get("workspace_id") or extra.get("organization_id", "")
+        a.account_id = extra.get("account_id") or getattr(account, "user_id", "") or ""
+        a.user_id = getattr(account, "user_id", "") or ""
+        a.extra = extra
+        return a
+
     if platform == "chatgpt":
-        cpa_url = config_store.get("cpa_api_url", "")
+        upload_account = _build_chatgpt_upload_account()
+
+        cpa_url = str(config_store.get("cpa_api_url", "") or "").strip()
         if cpa_url:
             ok, msg = upload_chatgpt_account_to_cpa(account)
             persist_cpa_sync_result(account, ok, msg)
@@ -24,7 +48,7 @@ def sync_account(account) -> list[dict[str, Any]]:
         codex_proxy_url = str(config_store.get("codex_proxy_url", "") or "").strip()
         if codex_proxy_url:
             upload_type = str(config_store.get("codex_proxy_upload_type", "at") or "at").strip().lower()
-            extra = account.extra or {}
+            extra = _get_account_extra(account)
 
             class _CP:
                 pass
@@ -42,25 +66,21 @@ def sync_account(account) -> list[dict[str, Any]]:
                 ok, msg = upload_at_to_codex_proxy(cp)
                 results.append({"name": "CodexProxy(AT)", "ok": ok, "msg": msg})
 
-        sub2api_url = str(config_store.get("sub2api_url", "") or "").strip()
-        if sub2api_url:
+        # 关键逻辑：ChatGPT 现在支持同时回填 CPA 和 Sub2API，互不覆盖、分别上报结果。
+        sub2api_url = str(
+            config_store.get("sub2api_api_url", "")
+            or config_store.get("sub2api_url", "")
+            or ""
+        ).strip()
+        sub2api_key = str(config_store.get("sub2api_api_key", "") or "").strip()
+        if sub2api_url and sub2api_key:
             from platforms.chatgpt.sub2api_upload import upload_to_sub2api
 
-            class _A:
-                pass
-
-            a = _A()
-            a.email = account.email
-            extra = account.extra or {}
-            a.access_token = extra.get("access_token") or account.token
-            a.refresh_token = extra.get("refresh_token", "")
-            a.client_id = extra.get("client_id", "app_EMoamEEZ73f0CkXaXp7hrann")
-            a.workspace_id = extra.get("workspace_id") or extra.get("organization_id", "")
-            a.account_id = extra.get("account_id") or account.user_id or ""
-            a.user_id = account.user_id or ""
-            a.extra = extra
-
-            ok, msg = upload_to_sub2api(a)
+            ok, msg = upload_to_sub2api(
+                upload_account,
+                api_url=sub2api_url,
+                api_key=sub2api_key,
+            )
             results.append({"name": "Sub2API", "ok": ok, "msg": msg})
 
     elif platform == "grok":

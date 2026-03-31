@@ -36,6 +36,9 @@ export default function Register() {
         mail_provider: cfg.mail_provider || 'moemail',
         yescaptcha_key: cfg.yescaptcha_key || '',
         moemail_api_url: cfg.moemail_api_url || '',
+        skymail_api_base: cfg.skymail_api_base || 'https://api.skymail.ink',
+        skymail_token: cfg.skymail_token || '',
+        skymail_domain: cfg.skymail_domain || '',
         laoudo_auth: cfg.laoudo_auth || '',
         laoudo_email: cfg.laoudo_email || '',
         laoudo_account_id: cfg.laoudo_account_id || '',
@@ -96,6 +99,9 @@ export default function Register() {
           maliapi_domain: values.maliapi_domain,
           maliapi_auto_domain_strategy: values.maliapi_auto_domain_strategy,
           moemail_api_url: values.moemail_api_url,
+          skymail_api_base: values.skymail_api_base,
+          skymail_token: values.skymail_token,
+          skymail_domain: values.skymail_domain,
           duckmail_api_url: values.duckmail_api_url,
           duckmail_provider_url: values.duckmail_provider_url,
           duckmail_bearer: values.duckmail_bearer,
@@ -224,6 +230,7 @@ export default function Register() {
               options={[
                 { value: 'moemail', label: 'MoeMail (sall.cc)' },
                 { value: 'tempmail_lol', label: 'TempMail.lol' },
+                { value: 'skymail', label: 'SkyMail (CloudMail)' },
                 { value: 'maliapi', label: 'YYDS Mail / MaliAPI' },
                 { value: 'duckmail', label: 'DuckMail' },
                 { value: 'freemail', label: 'Freemail' },
@@ -234,6 +241,19 @@ export default function Register() {
               ]}
             />
           </Form.Item>
+          {mailProvider === 'skymail' && (
+            <>
+              <Form.Item name="skymail_api_base" label="API Base">
+                <Input placeholder="https://api.skymail.ink" />
+              </Form.Item>
+              <Form.Item name="skymail_token" label="Authorization Token">
+                <Input.Password placeholder="Bearer xxxxx" />
+              </Form.Item>
+              <Form.Item name="skymail_domain" label="邮箱域名">
+                <Input placeholder="mail.example.com" />
+              </Form.Item>
+            </>
+          )}
           {mailProvider === 'laoudo' && (
             <>
               <Form.Item name="laoudo_email" label="邮箱地址">

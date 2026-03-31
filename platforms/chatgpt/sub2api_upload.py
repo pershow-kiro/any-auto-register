@@ -34,6 +34,12 @@ def _get_config_value(key: str, default: str = "") -> str:
     try:
         from core.config_store import config_store
 
+        if key == "sub2api_url":
+            return str(
+                config_store.get("sub2api_url", "")
+                or config_store.get("sub2api_api_url", default)
+                or default
+            )
         return str(config_store.get(key, default) or default)
     except Exception:
         return default

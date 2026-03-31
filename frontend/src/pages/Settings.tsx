@@ -18,6 +18,7 @@ const SELECT_FIELDS: Record<string, { label: string; value: string }[]> = {
   mail_provider: [
     { label: 'Laoudo（固定邮箱）', value: 'laoudo' },
     { label: 'TempMail.lol（自动生成）', value: 'tempmail_lol' },
+    { label: 'SkyMail（CloudMail 接口）', value: 'skymail' },
     { label: 'DuckMail（自动生成）', value: 'duckmail' },
     { label: 'MoeMail (sall.cc)', value: 'moemail' },
     { label: 'YYDS Mail / MaliAPI', value: 'maliapi' },
@@ -40,6 +41,10 @@ const SELECT_FIELDS: Record<string, { label: string; value: string }[]> = {
     { label: 'YesCaptcha', value: 'yescaptcha' },
     { label: '本地 Solver (Camoufox)', value: 'local_solver' },
     { label: '手动', value: 'manual' },
+  ],
+  cpa_cleanup_enabled: [
+    { label: '关闭', value: '0' },
+    { label: '开启', value: '1' },
   ],
   codex_proxy_upload_type: [
     { label: 'AT（Access Token，推荐）', value: 'at' },
@@ -102,6 +107,15 @@ const TAB_ITEMS = [
           { key: 'cloudmail_admin_email', label: '管理员邮箱', placeholder: 'admin@example.com' },
           { key: 'cloudmail_admin_password', label: '管理员密码', secret: true },
           { key: 'cloudmail_domain', label: '默认域名', placeholder: 'mail.example.com' },
+        ],
+      },
+      {
+        title: 'SkyMail',
+        desc: 'CloudMail 兼容接口（addUser / emailList）',
+        fields: [
+          { key: 'skymail_api_base', label: 'API Base', placeholder: 'https://api.skymail.ink' },
+          { key: 'skymail_token', label: 'Authorization Token', secret: true },
+          { key: 'skymail_domain', label: '邮箱域名', placeholder: 'mail.example.com' },
         ],
       },
       {
@@ -176,6 +190,25 @@ const TAB_ITEMS = [
         fields: [
           { key: 'cpa_api_url', label: 'API URL', placeholder: 'https://your-cpa.example.com' },
           { key: 'cpa_api_key', label: 'API Key', secret: true },
+        ],
+      },
+      {
+        title: 'Sub2API 面板',
+        desc: '注册完成后自动上传到 Sub2API 管理后台',
+        fields: [
+          { key: 'sub2api_api_url', label: 'API URL', placeholder: 'https://your-sub2api.example.com' },
+          { key: 'sub2api_api_key', label: 'API Key', secret: true },
+        ],
+      },
+      {
+        title: 'CPA 自动维护',
+        desc: '定时删除 status=error 的凭证，剩余数量低于阈值时自动按现有配置补注册 ChatGPT',
+        fields: [
+          { key: 'cpa_cleanup_enabled', label: '自动维护', type: 'select' },
+          { key: 'cpa_cleanup_interval_minutes', label: '检查间隔（分钟）', placeholder: '60' },
+          { key: 'cpa_cleanup_threshold', label: '最低凭证阈值', placeholder: '5' },
+          { key: 'cpa_cleanup_concurrency', label: '补注册并发数', placeholder: '1' },
+          { key: 'cpa_cleanup_register_delay_seconds', label: '每个注册延迟（秒）', placeholder: '0' },
         ],
       },
       {
@@ -765,6 +798,12 @@ export default function Settings() {
       if (!data.luckmail_base_url) {
         data.luckmail_base_url = 'https://mails.luckyous.com/'
       }
+      if (!data.sub2api_url && data.sub2api_api_url) {
+        data.sub2api_url = data.sub2api_api_url
+      }
+      if (!data.sub2api_api_url && data.sub2api_url) {
+        data.sub2api_api_url = data.sub2api_url
+      }
       data.cfworker_domains = parseStoredDomainList(data.cfworker_domains)
       data.cfworker_enabled_domains = parseStoredDomainList(data.cfworker_enabled_domains)
       form.setFieldsValue(data)
@@ -789,12 +828,20 @@ export default function Settings() {
       if (domains.length > 0) {
         values.cfworker_domain = ''
       }
+      if (!values.sub2api_url && values.sub2api_api_url) {
+        values.sub2api_url = values.sub2api_api_url
+      }
+      if (!values.sub2api_api_url && values.sub2api_url) {
+        values.sub2api_api_url = values.sub2api_url
+      }
 
       await apiFetch('/config', { method: 'PUT', body: JSON.stringify({ data: values }) })
       form.setFieldsValue({
         cfworker_domains: domains,
         cfworker_enabled_domains: enabledDomains,
         cfworker_domain: domains.length > 0 ? '' : values.cfworker_domain,
+        sub2api_url: values.sub2api_url,
+        sub2api_api_url: values.sub2api_api_url,
       })
       message.success('保存成功')
       setSaved(true)
