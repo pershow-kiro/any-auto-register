@@ -38,7 +38,6 @@ class EmailServiceAdapter:
             self.log_fn(f"\u6210\u529f\u83b7\u53d6\u9a8c\u8bc1\u7801: {code}")
         return code
 
-
 class RecoverableRegistrationError(RuntimeError):
     """携带可恢复账号信息的注册异常。"""
 
@@ -46,7 +45,6 @@ class RecoverableRegistrationError(RuntimeError):
         super().__init__(message)
         self.partial_account = partial_account
         self.detail = detail or {}
-
 class RegistrationEngineV2:
     def __init__(
         self,
@@ -88,7 +86,6 @@ class RegistrationEngineV2:
         if not detail:
             detail = "获取最终 OAuth Tokens 失败"
         return f"账号已创建成功，但 {detail}"
-
     def _should_retry(self, message: str) -> bool:
         text = str(message or "").lower()
         retriable_markers = [
@@ -180,6 +177,7 @@ class RegistrationEngineV2:
                         result.error_message = last_error
                         return result
 
+                    self._log("步骤 2/2: 优先复用注册会话提取 ChatGPT Session / AccessToken...")
                     self._log("步骤 2/2: 优先复用注册会话提取 ChatGPT Session / AccessToken...")
                     session_ok, session_result = chatgpt_client.reuse_session_and_get_tokens()
 
