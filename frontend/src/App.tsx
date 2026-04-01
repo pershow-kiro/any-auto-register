@@ -7,6 +7,7 @@ import {
   GlobalOutlined,
   HistoryOutlined,
   SettingOutlined,
+  SwapOutlined,
   SunOutlined,
   MoonOutlined,
   LogoutOutlined,
@@ -19,6 +20,7 @@ import Proxies from '@/pages/Proxies'
 import Settings from '@/pages/Settings'
 import TaskHistory from '@/pages/TaskHistory'
 import Login from '@/pages/Login'
+import CpaToSub2Api from '@/pages/CpaToSub2Api'
 import { darkTheme, lightTheme } from './theme'
 import { apiFetch, clearToken, getToken } from '@/lib/utils'
 
@@ -94,6 +96,7 @@ function AppContent() {
     if (path === '/history') return ['/history']
     if (path === '/proxies') return ['/proxies']
     if (path === '/settings') return ['/settings']
+    if (path === '/tools/cpa-to-sub2api') return ['/tools/cpa-to-sub2api']
     return ['/']
   }
 
@@ -126,6 +129,11 @@ function AppContent() {
       key: '/settings',
       icon: <SettingOutlined />,
       label: '全局配置',
+    },
+    {
+      key: '/tools/cpa-to-sub2api',
+      icon: <SwapOutlined />,
+      label: 'CPA 转 Sub2API',
     },
   ]
 
@@ -233,6 +241,7 @@ function AppContent() {
             <Route path="/history" element={<TaskHistory />} />
             <Route path="/proxies" element={<Proxies />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/tools/cpa-to-sub2api" element={<CpaToSub2Api />} />
           </Routes>
         </Content>
       </Layout>
