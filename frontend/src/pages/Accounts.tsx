@@ -55,15 +55,23 @@ function parseExtraJson(raw: string | undefined) {
 function normalizeAccount(account: any) {
   const extra = parseExtraJson(account.extra_json)
   const syncStatuses = extra.sync_statuses && typeof extra.sync_statuses === 'object' ? extra.sync_statuses : {}
-  const cliproxySync = syncStatuses.cliproxyapi && typeof syncStatuses.cliproxyapi === 'object' ? syncStatuses.cliproxyapi : {}
+  const sub2apiSync = syncStatuses.sub2api && typeof syncStatuses.sub2api === 'object' ? syncStatuses.sub2api : {}
   const chatgptLocal = extra.chatgpt_local && typeof extra.chatgpt_local === 'object' ? extra.chatgpt_local : {}
-  return { ...account, extra, cliproxySync, chatgptLocal }
+  return { ...account, extra, sub2apiSync, chatgptLocal }
 }
 
 function formatSyncTime(value?: string) {
   if (!value) return ''
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+function formatUnixTime(value?: number | string) {
+  if (value === null || value === undefined || value === '') return ''
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return String(value)
+  const date = new Date(numeric * 1000)
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString()
 }
 
 function formatCreatedAt(value?: string) {
@@ -250,7 +258,7 @@ function LocalProbeSummary({ probe }: { probe: any }) {
   )
 }
 
-function cliproxyStateMeta(sync: any) {
+function sub2apiStateMeta(sync: any) {
   if (!sync || Object.keys(sync).length === 0) {
     return { color: 'default', label: '未同步' }
   }
@@ -266,6 +274,9 @@ function cliproxyStateMeta(sync: any) {
   if (sync.remote_state === 'usable') {
     return { color: 'success', label: '远端可用' }
   }
+  if (sync.remote_state === 'unschedulable') {
+    return { color: 'warning', label: '远端不可调度' }
+  }
   if (sync.remote_state === 'account_deactivated') {
     return { color: 'error', label: '远端已失效' }
   }
@@ -279,40 +290,48 @@ function cliproxyStateMeta(sync: any) {
     return { color: 'warning', label: '远端需付费/权限' }
   }
   if (sync.remote_state === 'quota_exhausted') {
-    return { color: 'warning', label: '远端额度耗尽' }
+    return { color: 'warning', label: '远端限流/额度受限' }
+  }
+  if (sync.remote_state === 'inactive') {
+    return { color: 'default', label: '远端Inactive' }
+  }
+  if (sync.remote_state === 'error') {
+    return { color: 'error', label: '远端错误' }
   }
   if (sync.status === 'active') {
-    return { color: 'processing', label: '远端Active' }
-  }
-  if (sync.status === 'refreshing') {
-    return { color: 'processing', label: '远端刷新中' }
-  }
-  if (sync.status === 'pending') {
-    return { color: 'default', label: '远端待处理' }
+    return sync.schedulable ? { color: 'processing', label: '远端Active' } : { color: 'warning', label: '远端不可调度' }
   }
   if (sync.status === 'error') {
     return { color: 'error', label: '远端错误' }
   }
-  if (sync.status === 'disabled') {
-    return { color: 'default', label: '远端禁用' }
+  if (sync.status === 'inactive') {
+    return { color: 'default', label: '远端Inactive' }
   }
   return { color: 'default', label: '未同步' }
 }
 
-function CliproxySyncSummary({ sync }: { sync: any }) {
-  const meta = cliproxyStateMeta(sync)
+function Sub2ApiSyncSummary({ sync }: { sync: any }) {
+  const meta = sub2apiStateMeta(sync)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <Tag color={meta.color}>{meta.label}</Tag>
         {sync?.status ? <Tag>{`status: ${sync.status}`}</Tag> : null}
+        {typeof sync?.schedulable === 'boolean' ? (
+          <Tag color={sync.schedulable ? 'success' : 'warning'}>
+            {sync.schedulable ? '可调度' : '不可调度'}
+          </Tag>
+        ) : null}
       </div>
-      <SummaryField label="状态信息" value={sync?.status_message} code />
-      <SummaryField label="auth-file" value={sync?.name} />
+      <SummaryField label="状态信息" value={sync?.status_message || sync?.message} code />
+      <SummaryField label="远端名称" value={sync?.name} />
+      <SummaryField label="远端账号 ID" value={sync?.sub2api_id ? String(sync.sub2api_id) : ''} />
       <SummaryField label="API URL" value={sync?.base_url} />
       <SummaryField label="同步时间" value={sync?.last_synced_at ? formatSyncTime(sync.last_synced_at) : ''} />
-      <SummaryField label="远端刷新时间" value={sync?.last_refresh ? formatSyncTime(sync.last_refresh) : ''} />
-      <SummaryField label="下次重试时间" value={sync?.next_retry_after ? formatSyncTime(sync.next_retry_after) : ''} />
+      <SummaryField label="更新时间" value={sync?.updated_at ? formatSyncTime(sync.updated_at) : ''} />
+      <SummaryField label="最后使用" value={sync?.last_used_at ? formatSyncTime(sync.last_used_at) : ''} />
+      <SummaryField label="过期时间" value={sync?.expires_at ? formatUnixTime(sync.expires_at) : ''} />
+      <SummaryField label="分组 ID" value={Array.isArray(sync?.group_ids) && sync.group_ids.length > 0 ? sync.group_ids.join(', ') : ''} />
       <SummaryField label="探测信息" value={sync?.last_probe_message} code />
     </div>
   )
@@ -486,15 +505,15 @@ function ActionMenu({ acc, onRefresh, actions }: { acc: any; onRefresh: () => vo
   const [resultText, setResultText] = useState('')
   const [resultUrl, setResultUrl] = useState('')
   const [resultProbe, setResultProbe] = useState<any>(null)
-  const [resultCliproxySync, setResultCliproxySync] = useState<any>(null)
+  const [resultRemoteSync, setResultRemoteSync] = useState<any>(null)
 
-  const showResult = (title: string, status: 'success' | 'error', text: string, url = '', probe: any = null, cliproxySync: any = null) => {
+  const showResult = (title: string, status: 'success' | 'error', text: string, url = '', probe: any = null, remoteSync: any = null) => {
     setResultTitle(title)
     setResultStatus(status)
     setResultText(text)
     setResultUrl(url)
     setResultProbe(probe)
-    setResultCliproxySync(cliproxySync)
+    setResultRemoteSync(remoteSync)
     setResultOpen(true)
   }
 
@@ -519,8 +538,8 @@ function ActionMenu({ acc, onRefresh, actions }: { acc: any; onRefresh: () => vo
       if (!r.ok) {
         const data = r.data || {}
         const probe = typeof data === 'object' && data ? data.probe || null : null
-        const cliproxySync = typeof data === 'object' && data ? data.sync || null : null
-        showResult(actionLabel, 'error', r.error || data.message || '操作失败', '', probe, cliproxySync)
+        const remoteSync = typeof data === 'object' && data ? data.sync || null : null
+        showResult(actionLabel, 'error', r.error || data.message || '操作失败', '', probe, remoteSync)
         onRefresh()
         return
       }
@@ -532,19 +551,19 @@ function ActionMenu({ acc, onRefresh, actions }: { acc: any; onRefresh: () => vo
       } else {
         const successText = typeof data === 'string' ? data : data.message || '操作成功'
         const probe = typeof data === 'object' && data ? data.probe || null : null
-        const cliproxySync = typeof data === 'object' && data ? data.sync || null : null
+        const remoteSync = typeof data === 'object' && data ? data.sync || null : null
         message.success(successText)
         const text =
           probe
             ? String(successText)
-            : cliproxySync
+            : remoteSync
             ? String(successText)
             : typeof data === 'string'
             ? data
             : Object.keys(data).length > 0
               ? JSON.stringify(data, null, 2)
               : '操作成功'
-        showResult(actionLabel, 'success', text, '', probe, cliproxySync)
+        showResult(actionLabel, 'success', text, '', probe, remoteSync)
       }
       onRefresh()
     } catch (e: any) {
@@ -607,9 +626,9 @@ function ActionMenu({ acc, onRefresh, actions }: { acc: any; onRefresh: () => vo
             <LocalProbeSummary probe={resultProbe} />
           </div>
         ) : null}
-        {resultCliproxySync ? (
+        {resultRemoteSync ? (
           <div style={{ marginBottom: 12 }}>
-            <CliproxySyncSummary sync={resultCliproxySync} />
+            <Sub2ApiSyncSummary sync={resultRemoteSync} />
           </div>
         ) : null}
         {resultUrl ? (
@@ -740,6 +759,22 @@ export default function Accounts() {
       body: JSON.stringify({ ids: Array.from(selectedRowKeys) }),
     })
     message.success('批量删除成功')
+    setSelectedRowKeys([])
+    load()
+  }
+
+  const handleDeleteInvalidFiltered = async () => {
+    if (filterStatus !== 'invalid' || total === 0) return
+    const res = await apiFetch('/accounts/batch-delete', {
+      method: 'POST',
+      body: JSON.stringify({
+        all_filtered: true,
+        platform: currentPlatform,
+        status: filterStatus,
+        email: search || undefined,
+      }),
+    })
+    message.success(`已删除 ${res.deleted || 0} 个已失效账号`)
     setSelectedRowKeys([])
     load()
   }
@@ -875,7 +910,7 @@ export default function Accounts() {
           email: item.email,
           platform: item.platform,
           ok: Boolean(syncResult.ok),
-          name: syncResult.name || 'CPA',
+          name: syncResult.name || 'Sub2API',
           msg: syncResult.msg || '',
         })),
       )
@@ -969,7 +1004,7 @@ export default function Accounts() {
         body: JSON.stringify(body),
       })
 
-      const actionLabel = mode === 'selected' ? '所选账号远端补传' : '远端未发现账号补传'
+      const actionLabel = mode === 'selected' ? '所选账号 Sub2API 补传' : 'Sub2API 远端未发现账号补传'
       if (!result.total) {
         message.info('没有可处理的账号')
       } else if (!result.failed && !result.skipped) {
@@ -985,7 +1020,7 @@ export default function Accounts() {
       showCpaSyncResult(`${actionLabel}结果`, result)
       await load()
     } catch (e: any) {
-      message.error(`CPA 上传失败: ${e.message}`)
+      message.error(`Sub2API 补传失败: ${e.message}`)
     } finally {
       setCpaSyncLoading('')
     }
@@ -995,8 +1030,8 @@ export default function Accounts() {
     if (currentPlatform !== 'chatgpt') return
 
     const loadingKey = `${kind}_${scope}` as typeof statusSyncLoading
-    const actionId = kind === 'probe' ? 'probe_local_status' : 'sync_cliproxyapi_status'
-    const actionLabel = kind === 'probe' ? '本地状态同步' : 'CLIProxyAPI 状态同步'
+    const actionId = kind === 'probe' ? 'probe_local_status' : 'sync_sub2api_status'
+    const actionLabel = kind === 'probe' ? '本地状态同步' : 'Sub2API 状态同步'
     const scopeLabel = scope === 'selected' ? '所选账号' : '当前筛选账号'
     const toastKey = `status-sync:${loadingKey}`
 
@@ -1054,7 +1089,7 @@ export default function Accounts() {
   const backfillButtonLabel = () => {
     const scope = getBackfillScope()
     const count = scope === 'selected' ? selectedRowKeys.length : total
-    return scope === 'selected' ? `补传所选远端未发现 (${count})` : `补传远端未发现 (${count})`
+    return scope === 'selected' ? `补传所选 Sub2API 远端未发现 (${count})` : `补传 Sub2API 远端未发现 (${count})`
   }
 
   const isChatgptPlatform = currentPlatform === 'chatgpt'
@@ -1177,12 +1212,12 @@ export default function Accounts() {
         },
       },
       {
-        title: 'CLIProxyAPI',
-        key: 'cliproxy_sync',
+        title: 'Sub2API',
+        key: 'sub2api_sync',
         width: 170,
         render: (_: any, record: any) => {
-          const sync = record.cliproxySync || {}
-          const meta = cliproxyStateMeta(sync)
+          const sync = record.sub2apiSync || {}
+          const meta = sub2apiStateMeta(sync)
 
           return (
             <div style={{ ...cellStackStyle, ...compactPanelStyle }}>
@@ -1269,8 +1304,8 @@ export default function Accounts() {
       key: `remote:${getStatusSyncScope()}`,
       label:
         getStatusSyncScope() === 'selected'
-          ? `同步所选 CLIProxyAPI 状态 (${selectedRowKeys.length})`
-          : `同步当前筛选 CLIProxyAPI 状态 (${total})`,
+          ? `同步所选 Sub2API 状态 (${selectedRowKeys.length})`
+          : `同步当前筛选 Sub2API 状态 (${total})`,
       disabled: getStatusSyncScope() === 'selected' ? selectedRowKeys.length === 0 : total === 0,
     },
   ]
@@ -1328,8 +1363,8 @@ export default function Accounts() {
             <Popconfirm
               title={
                 getBackfillScope() === 'selected'
-                  ? `确认补传所选 ${selectedRowKeys.length} 个账号中远端未发现的 auth-file？`
-                  : '确认补传当前筛选范围内远端未发现且本地状态有效的账号？'
+                  ? `确认补传所选 ${selectedRowKeys.length} 个账号中 Sub2API 远端未发现的账号？`
+                  : '确认补传当前筛选范围内 Sub2API 远端未发现且本地状态有效的账号？'
               }
               onConfirm={() => handleCpaBackfill(getBackfillScope())}
             >
@@ -1345,6 +1380,14 @@ export default function Accounts() {
           {selectedRowKeys.length > 0 && (
             <Popconfirm title={`确认删除选中的 ${selectedRowKeys.length} 个账号？`} onConfirm={handleBatchDelete}>
               <Button danger icon={<DeleteOutlined />}>删除 {selectedRowKeys.length} 个</Button>
+            </Popconfirm>
+          )}
+          {selectedRowKeys.length === 0 && filterStatus === 'invalid' && total > 0 && (
+            <Popconfirm
+              title={`确认删除当前筛选范围内 ${total} 个已失效账号？`}
+              onConfirm={handleDeleteInvalidFiltered}
+            >
+              <Button danger icon={<DeleteOutlined />}>删除当前筛选已失效 ({total})</Button>
             </Popconfirm>
           )}
           {currentPlatform === 'chatgpt' && selectedRowKeys.length > 0 && (
@@ -1525,11 +1568,11 @@ export default function Accounts() {
               </DetailSection>
             ) : null}
             {currentPlatform === 'chatgpt' ? (
-              <DetailSection title="CLIProxyAPI 状态">
-                {currentAccount.cliproxySync && Object.keys(currentAccount.cliproxySync).length > 0 ? (
-                  <CliproxySyncSummary sync={currentAccount.cliproxySync} />
+              <DetailSection title="Sub2API 状态">
+                {currentAccount.sub2apiSync && Object.keys(currentAccount.sub2apiSync).length > 0 ? (
+                  <Sub2ApiSyncSummary sync={currentAccount.sub2apiSync} />
                 ) : (
-                  <Text type="secondary">尚未同步。可在操作菜单中点击“同步 CLIProxyAPI 状态”。</Text>
+                  <Text type="secondary">尚未同步。可在操作菜单中点击“同步 Sub2API 状态”。</Text>
                 )}
               </DetailSection>
             ) : null}

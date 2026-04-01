@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from core.base_platform import Account, AccountStatus
 from core.db import AccountModel, engine
 from services.external_apps import install, list_status, start, start_all, stop, stop_all
-from services.chatgpt_sync import backfill_chatgpt_account_to_cpa, get_cliproxy_sync_state
+from services.chatgpt_sync import backfill_chatgpt_account_to_sub2api, needs_sub2api_backfill
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -91,7 +91,7 @@ def backfill_integrations(body: BackfillRequest):
             rows = [
                 row for row in rows
                 if row.platform != "chatgpt"
-                or str(get_cliproxy_sync_state(row).get("remote_state") or "").strip().lower() == "not_found"
+                or needs_sub2api_backfill(row)
             ]
 
         if any(row.platform == "grok" for row in rows):
@@ -111,12 +111,12 @@ def backfill_integrations(body: BackfillRequest):
             try:
                 results = []
                 if row.platform == "chatgpt":
-                    outcome = backfill_chatgpt_account_to_cpa(row, session=s, commit=True)
+                    outcome = backfill_chatgpt_account_to_sub2api(row, session=s, commit=True)
                     ok = bool(outcome.get("ok"))
                     skipped = bool(outcome.get("skipped"))
                     results.extend(outcome.get("results") or [])
                     if not results:
-                        results.append({"name": "CLIProxyAPI", "ok": ok, "msg": outcome.get("message", "")})
+                        results.append({"name": "Sub2API", "ok": ok, "msg": outcome.get("message", "")})
                     if skipped:
                         summary["skipped"] += 1
                     elif ok:

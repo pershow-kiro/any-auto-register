@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 from core.db import AccountModel
-from services.chatgpt_sync import backfill_chatgpt_account_to_cpa, build_chatgpt_sync_account
+from services.chatgpt_sync import backfill_chatgpt_account_to_sub2api, build_chatgpt_sync_account
 
 
 class ChatGPTBackfillTests(unittest.TestCase):
@@ -35,7 +35,7 @@ class ChatGPTBackfillTests(unittest.TestCase):
         account = self._make_account()
         extra = account.get_extra()
         extra["sync_statuses"] = {
-            "cliproxyapi": {
+            "sub2api": {
                 "uploaded": True,
                 "remote_state": "usable",
                 "message": "",
@@ -43,9 +43,9 @@ class ChatGPTBackfillTests(unittest.TestCase):
         }
         account.set_extra(extra)
 
-        with mock.patch("services.cliproxyapi_sync.sync_chatgpt_cliproxyapi_status") as sync_mock:
+        with mock.patch("services.sub2api_sync.sync_chatgpt_sub2api_status") as sync_mock:
             with mock.patch("platforms.chatgpt.status_probe.probe_local_chatgpt_status") as probe_mock:
-                result = backfill_chatgpt_account_to_cpa(account, commit=False)
+                result = backfill_chatgpt_account_to_sub2api(account, commit=False)
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["skipped"])
@@ -58,7 +58,7 @@ class ChatGPTBackfillTests(unittest.TestCase):
         account = self._make_account()
         extra = account.get_extra()
         extra["sync_statuses"] = {
-            "cliproxyapi": {
+            "sub2api": {
                 "uploaded": False,
                 "remote_state": "not_found",
                 "message": "未发现",
@@ -66,7 +66,7 @@ class ChatGPTBackfillTests(unittest.TestCase):
         }
         account.set_extra(extra)
 
-        with mock.patch("services.cliproxyapi_sync.sync_chatgpt_cliproxyapi_status") as sync_mock:
+        with mock.patch("services.sub2api_sync.sync_chatgpt_sub2api_status") as sync_mock:
             with mock.patch(
                 "platforms.chatgpt.status_probe.probe_local_chatgpt_status",
                 return_value={
@@ -79,8 +79,8 @@ class ChatGPTBackfillTests(unittest.TestCase):
                     "codex": {"state": "skipped_auth_invalid"},
                 },
             ):
-                with mock.patch("services.chatgpt_sync.upload_account_model_to_cpa") as upload_mock:
-                    result = backfill_chatgpt_account_to_cpa(account, commit=False)
+                with mock.patch("services.chatgpt_sync.upload_chatgpt_account_to_sub2api") as upload_mock:
+                    result = backfill_chatgpt_account_to_sub2api(account, commit=False)
 
         self.assertFalse(result["ok"])
         self.assertFalse(result["uploaded"])
@@ -93,7 +93,7 @@ class ChatGPTBackfillTests(unittest.TestCase):
         account = self._make_account()
         extra = account.get_extra()
         extra["sync_statuses"] = {
-            "cliproxyapi": {
+            "sub2api": {
                 "uploaded": False,
                 "remote_state": "not_found",
                 "message": "未发现",
@@ -102,7 +102,7 @@ class ChatGPTBackfillTests(unittest.TestCase):
         account.set_extra(extra)
 
         with mock.patch(
-            "services.cliproxyapi_sync.sync_chatgpt_cliproxyapi_status",
+            "services.sub2api_sync.sync_chatgpt_sub2api_status",
             side_effect=[
                 {
                     "uploaded": True,
@@ -125,10 +125,10 @@ class ChatGPTBackfillTests(unittest.TestCase):
                 },
             ):
                 with mock.patch(
-                    "services.chatgpt_sync.upload_account_model_to_cpa",
+                    "services.chatgpt_sync.upload_chatgpt_account_to_sub2api",
                     return_value=(True, "上传成功"),
                 ) as upload_mock:
-                    result = backfill_chatgpt_account_to_cpa(account, commit=False)
+                    result = backfill_chatgpt_account_to_sub2api(account, commit=False)
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["uploaded"])
@@ -141,7 +141,7 @@ class ChatGPTBackfillTests(unittest.TestCase):
         account = self._make_account()
 
         with mock.patch(
-            "services.cliproxyapi_sync.sync_chatgpt_cliproxyapi_status",
+            "services.sub2api_sync.sync_chatgpt_sub2api_status",
             side_effect=[
                 {
                     "uploaded": False,
@@ -169,10 +169,10 @@ class ChatGPTBackfillTests(unittest.TestCase):
                 },
             ):
                 with mock.patch(
-                    "services.chatgpt_sync.upload_account_model_to_cpa",
+                    "services.chatgpt_sync.upload_chatgpt_account_to_sub2api",
                     return_value=(True, "上传成功"),
                 ):
-                    result = backfill_chatgpt_account_to_cpa(account, commit=False)
+                    result = backfill_chatgpt_account_to_sub2api(account, commit=False)
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["uploaded"])

@@ -33,7 +33,11 @@ class ImportRequest(BaseModel):
 
 
 class BatchDeleteRequest(BaseModel):
-    ids: list[int]
+    ids: list[int] = []
+    all_filtered: bool = False
+    platform: Optional[str] = None
+    status: Optional[str] = None
+    email: Optional[str] = None
 
 
 class BatchSub2ApiUploadRequest(BaseModel):
@@ -204,32 +208,58 @@ def batch_delete_accounts(
     session: Session = Depends(get_session)
 ):
     """批量删除账号"""
-    if not body.ids:
-        raise HTTPException(400, "账号 ID 列表不能为空")
-    
-    if len(body.ids) > 1000:
-        raise HTTPException(400, "单次最多删除 1000 个账号")
-    
     deleted_count = 0
     not_found_ids = []
-    
+
     try:
-        for account_id in body.ids:
-            acc = session.get(AccountModel, account_id)
-            if acc:
+        if body.ids:
+            unique_ids = []
+            seen = set()
+            for raw in body.ids:
+                account_id = int(raw)
+                if account_id <= 0 or account_id in seen:
+                    continue
+                seen.add(account_id)
+                unique_ids.append(account_id)
+
+            if not unique_ids:
+                raise HTTPException(400, "账号 ID 列表不能为空")
+
+            for account_id in unique_ids:
+                acc = session.get(AccountModel, account_id)
+                if acc:
+                    session.delete(acc)
+                    deleted_count += 1
+                else:
+                    not_found_ids.append(account_id)
+        else:
+            if not body.all_filtered:
+                raise HTTPException(400, "请提供账号 ID 列表，或指定 all_filtered=true")
+            if not body.status and not body.email:
+                raise HTTPException(400, "批量删除当前筛选结果时，至少需要提供 status 或 email 条件")
+
+            query = select(AccountModel)
+            query = _apply_account_filters(
+                query,
+                platform=body.platform,
+                status=body.status,
+                email=body.email,
+            )
+            rows = session.exec(query).all()
+            for acc in rows:
                 session.delete(acc)
                 deleted_count += 1
-            else:
-                not_found_ids.append(account_id)
-        
+
         session.commit()
         logger.info(f"批量删除成功: {deleted_count} 个账号")
-        
+
         return {
             "deleted": deleted_count,
             "not_found": not_found_ids,
-            "total_requested": len(body.ids)
+            "total_requested": len(body.ids) if body.ids else deleted_count,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         session.rollback()
         logger.exception("批量删除失败")
@@ -282,12 +312,19 @@ def batch_upload_sub2api(
         return results
 
     from platforms.chatgpt.sub2api_upload import upload_to_sub2api
+    from services.chatgpt_sync import update_account_model_sub2api_sync
+    from services.sub2api_sync import sync_chatgpt_sub2api_status_batch
 
     success, message = upload_to_sub2api(upload_candidates, group_ids=body.group_ids)
     if success:
+        sync_results = sync_chatgpt_sub2api_status_batch(valid_accounts)
         for acc in valid_accounts:
+            sync_result = sync_results.get(int(acc.id or 0), {})
+            if sync_result:
+                update_account_model_sub2api_sync(acc, sync_result, session=session, commit=False)
             results["success_count"] += 1
             results["details"].append({"id": acc.id, "email": acc.email, "success": True, "message": message})
+        session.commit()
     else:
         for acc in valid_accounts:
             results["failed_count"] += 1

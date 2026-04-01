@@ -9,7 +9,7 @@ from core.registry import get
 from core.base_platform import RegisterConfig
 from core.config_store import config_store
 from services.chatgpt_account_state import apply_chatgpt_status_policy
-from services.chatgpt_sync import update_account_model_cliproxy_sync
+from services.chatgpt_sync import update_account_model_sub2api_sync
 
 router = APIRouter(prefix="/actions", tags=["actions"])
 
@@ -103,7 +103,7 @@ def _apply_action_result(
         status_reason = ""
         if action_id == "probe_local_status":
             status_reason = apply_chatgpt_status_policy(acc_model, local_probe=data.get("probe"))
-        elif action_id == "sync_cliproxyapi_status":
+        elif action_id in {"sync_sub2api_status", "sync_cliproxyapi_status"}:
             status_reason = apply_chatgpt_status_policy(acc_model, remote_sync=data.get("sync"))
         if status_reason:
             from datetime import datetime, timezone
@@ -172,8 +172,6 @@ def _resolve_batch_accounts(platform: str, body: BatchActionRequest, session: Se
 
         if not account_ids:
             raise HTTPException(400, "账号 ID 列表不能为空")
-        if len(account_ids) > 1000:
-            raise HTTPException(400, "单次最多处理 1000 个账号")
 
         rows = session.exec(
             select(AccountModel)
@@ -195,8 +193,6 @@ def _resolve_batch_accounts(platform: str, body: BatchActionRequest, session: Se
         query = query.where(AccountModel.email.contains(body.email))
 
     rows = session.exec(query).all()
-    if len(rows) > 1000:
-        raise HTTPException(400, "单次最多处理 1000 个账号")
     return rows, []
 
 
@@ -213,8 +209,8 @@ def _result_message(result: dict[str, Any]) -> str:
     return str(result.get("error") or "").strip()
 
 
-def _execute_batch_cliproxy_sync(accounts: list[AccountModel], session: Session) -> dict[str, Any]:
-    from services.cliproxyapi_sync import sync_chatgpt_cliproxyapi_status_batch
+def _execute_batch_sub2api_sync(accounts: list[AccountModel], session: Session) -> dict[str, Any]:
+    from services.sub2api_sync import sync_chatgpt_sub2api_status_batch
 
     class SyncAccount:
         def __init__(self, model: AccountModel):
@@ -232,14 +228,14 @@ def _execute_batch_cliproxy_sync(accounts: list[AccountModel], session: Session)
             self.cookies = extra.get("cookies", "")
 
     sync_accounts = [SyncAccount(model) for model in accounts]
-    sync_results = sync_chatgpt_cliproxyapi_status_batch(sync_accounts)
+    sync_results = sync_chatgpt_sub2api_status_batch(sync_accounts)
 
     items = []
     success_count = 0
     failed_count = 0
     for acc_model in accounts:
         sync_result = sync_results.get(int(acc_model.id or 0), {})
-        update_account_model_cliproxy_sync(acc_model, sync_result, session=session, commit=False)
+        update_account_model_sub2api_sync(acc_model, sync_result, session=session, commit=False)
         remote_state = str(sync_result.get("remote_state") or "").strip().lower()
         ok = bool(sync_result.get("uploaded")) and remote_state not in {"unreachable", "not_found"}
         if ok:
@@ -255,7 +251,7 @@ def _execute_batch_cliproxy_sync(accounts: list[AccountModel], session: Session)
                 "id": acc_model.id,
                 "email": acc_model.email,
                 "ok": ok,
-                "message": f"CLIProxyAPI 状态同步完成：{summary}",
+                "message": f"Sub2API 状态同步完成：{summary}",
                 "status": acc_model.status,
             }
         )
@@ -289,8 +285,8 @@ def execute_batch_action(
     if not accounts and not missing_ids:
         return {"total": 0, "success": 0, "failed": 0, "items": []}
 
-    if platform == "chatgpt" and action_id == "sync_cliproxyapi_status":
-        batch_result = _execute_batch_cliproxy_sync(accounts, session)
+    if platform == "chatgpt" and action_id in {"sync_sub2api_status", "sync_cliproxyapi_status"}:
+        batch_result = _execute_batch_sub2api_sync(accounts, session)
         if missing_ids:
             for missing_id in missing_ids:
                 batch_result["failed"] += 1

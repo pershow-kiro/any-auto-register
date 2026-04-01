@@ -173,10 +173,16 @@ def upload_sub2api(account_id: int, req: Sub2ApiUploadReq,
     codex_acc = _to_codex_account(acc)
 
     from platforms.chatgpt.sub2api_upload import upload_to_sub2api
+    from services.chatgpt_sync import update_account_model_sub2api_sync
+    from services.sub2api_sync import sync_chatgpt_sub2api_status
 
     ok, msg = upload_to_sub2api(
         codex_acc,
         api_url=req.api_url,
         api_key=req.api_key,
     )
+    if ok:
+        sync_result = sync_chatgpt_sub2api_status(codex_acc, api_url=req.api_url, api_key=req.api_key)
+        update_account_model_sub2api_sync(acc, sync_result, session=session, commit=True)
+        return {"ok": ok, "message": msg, "sync": sync_result}
     return {"ok": ok, "message": msg}

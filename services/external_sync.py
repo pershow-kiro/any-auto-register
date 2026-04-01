@@ -8,6 +8,7 @@ from services.chatgpt_sync import (
     _get_account_extra,
     persist_cpa_sync_result,
     upload_chatgpt_account_to_cpa,
+    record_sub2api_sync_result,
 )
 
 
@@ -75,12 +76,34 @@ def sync_account(account) -> list[dict[str, Any]]:
         sub2api_key = str(config_store.get("sub2api_api_key", "") or "").strip()
         if sub2api_url and sub2api_key:
             from platforms.chatgpt.sub2api_upload import upload_to_sub2api
+            from services.sub2api_sync import sync_chatgpt_sub2api_status
 
             ok, msg = upload_to_sub2api(
                 upload_account,
                 api_url=sub2api_url,
                 api_key=sub2api_key,
             )
+            if isinstance(upload_account.extra, dict):
+                if ok:
+                    record_sub2api_sync_result(
+                        upload_account.extra,
+                        sync_chatgpt_sub2api_status(
+                            upload_account,
+                            api_url=sub2api_url,
+                            api_key=sub2api_key,
+                        ),
+                    )
+                else:
+                    record_sub2api_sync_result(
+                        upload_account.extra,
+                        {
+                            "uploaded": False,
+                            "last_synced_at": "",
+                            "message": msg,
+                            "remote_state": "upload_failed",
+                            "base_url": sub2api_url,
+                        },
+                    )
             results.append({"name": "Sub2API", "ok": ok, "msg": msg})
 
     elif platform == "grok":

@@ -185,7 +185,7 @@ class ChatGPTPlatform(BasePlatform):
     def get_platform_actions(self) -> list:
         return [
             {"id": "probe_local_status", "label": "探测本地状态", "params": []},
-            {"id": "sync_cliproxyapi_status", "label": "同步 CLIProxyAPI 状态", "params": []},
+            {"id": "sync_sub2api_status", "label": "同步 Sub2API 状态", "params": []},
             {"id": "refresh_token", "label": "刷新 Token", "params": []},
             {"id": "continue_registration", "label": "继续注册并上传", "params": []},
             {"id": "payment_link", "label": "生成支付链接",
@@ -252,10 +252,10 @@ class ChatGPTPlatform(BasePlatform):
                 },
             }
 
-        if action_id == "sync_cliproxyapi_status":
-            from services.cliproxyapi_sync import sync_chatgpt_cliproxyapi_status
+        if action_id in {"sync_sub2api_status", "sync_cliproxyapi_status"}:
+            from services.sub2api_sync import sync_chatgpt_sub2api_status
 
-            sync_result = sync_chatgpt_cliproxyapi_status(a)
+            sync_result = sync_chatgpt_sub2api_status(a)
             ok = bool(sync_result.get("uploaded")) and sync_result.get("remote_state") not in {"unreachable", "not_found"}
             summary = (
                 f"远端状态={sync_result.get('status') or 'not_found'}, "
@@ -264,13 +264,13 @@ class ChatGPTPlatform(BasePlatform):
             return {
                 "ok": ok,
                 "data": {
-                    "message": f"CLIProxyAPI 状态同步完成：{summary}",
+                    "message": f"Sub2API 状态同步完成：{summary}",
                     "sync": sync_result,
                 },
                 "error": sync_result.get("message") if not ok else "",
                 "account_extra_patch": {
                     "sync_statuses": {
-                        "cliproxyapi": sync_result,
+                        "sub2api": sync_result,
                     },
                 },
             }
@@ -437,13 +437,28 @@ class ChatGPTPlatform(BasePlatform):
 
         elif action_id == "upload_sub2api":
             from platforms.chatgpt.sub2api_upload import upload_to_sub2api
+            from services.sub2api_sync import sync_chatgpt_sub2api_status
 
             ok, msg = upload_to_sub2api(
                 a,
                 api_url=params.get("api_url"),
                 api_key=params.get("api_key"),
             )
-            return {"ok": ok, "data": msg}
+            data = {"message": msg}
+            account_extra_patch = None
+            if ok:
+                sync_result = sync_chatgpt_sub2api_status(
+                    a,
+                    api_url=params.get("api_url"),
+                    api_key=params.get("api_key"),
+                )
+                data["sync"] = sync_result
+                account_extra_patch = {
+                    "sync_statuses": {
+                        "sub2api": sync_result,
+                    },
+                }
+            return {"ok": ok, "data": data, "account_extra_patch": account_extra_patch}
 
         elif action_id == "upload_codex_proxy":
             upload_type = str(
