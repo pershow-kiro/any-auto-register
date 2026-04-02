@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { App, Card, Form, Input, Select, Button, message, Tabs, Space, Tag, Typography, Modal, QRCode } from 'antd'
+import { App, Card, Form, Input, Select, Button, message, Tabs, Space, Tag, Typography, Modal, QRCode, Switch } from 'antd'
 import {
   SaveOutlined,
   EyeOutlined,
@@ -13,20 +13,21 @@ import {
   PlusOutlined,
   LockOutlined,
 } from '@ant-design/icons'
+import { parseBooleanConfigValue } from '@/lib/configValueParsers'
 import { apiFetch } from '@/lib/utils'
 
 const SELECT_FIELDS: Record<string, { label: string; value: string }[]> = {
   mail_provider: [
+    { label: 'LuckMail（订单接码 / 已购邮箱）', value: 'luckmail' },
     { label: 'Laoudo（固定邮箱）', value: 'laoudo' },
     { label: 'TempMail.lol（自动生成）', value: 'tempmail_lol' },
     { label: 'SkyMail（CloudMail 接口）', value: 'skymail' },
     { label: 'DuckMail（自动生成）', value: 'duckmail' },
     { label: 'MoeMail (sall.cc)', value: 'moemail' },
     { label: 'YYDS Mail / MaliAPI', value: 'maliapi' },
+    { label: 'GPTMail', value: 'gptmail' },
     { label: 'Freemail（自建 CF Worker）', value: 'freemail' },
-    { label: 'Cloud Mail（公开 API）', value: 'cloudmail' },
     { label: 'CF Worker（自建域名）', value: 'cfworker' },
-    { label: 'LuckMail（订单接码 / 已购邮箱）', value: 'luckmail' },
   ],
   maliapi_auto_domain_strategy: [
     { label: 'balanced', value: 'balanced' },
@@ -101,16 +102,6 @@ const TAB_ITEMS = [
         fields: [{ key: 'moemail_api_url', label: 'API URL', placeholder: 'https://sall.cc' }],
       },
       {
-        title: 'Cloud Mail',
-        desc: '基于 cloud-mail 的公开 API，使用管理员账号批量创建收件邮箱',
-        fields: [
-          { key: 'cloudmail_api_url', label: 'API URL', placeholder: 'https://mail.example.com' },
-          { key: 'cloudmail_admin_email', label: '管理员邮箱', placeholder: 'admin@example.com' },
-          { key: 'cloudmail_admin_password', label: '管理员密码', secret: true },
-          { key: 'cloudmail_domain', label: '默认域名', placeholder: 'mail.example.com' },
-        ],
-      },
-      {
         title: 'SkyMail',
         desc: 'CloudMail 兼容接口（addUser / emailList）',
         fields: [
@@ -127,6 +118,15 @@ const TAB_ITEMS = [
           { key: 'maliapi_api_key', label: 'API Key', secret: true },
           { key: 'maliapi_domain', label: '邮箱域名（可选）', placeholder: 'example.com' },
           { key: 'maliapi_auto_domain_strategy', label: '自动域名策略', type: 'select' },
+        ],
+      },
+      {
+        title: 'GPTMail',
+        desc: '基于 GPTMail API 生成临时邮箱并轮询邮件；若已知本站可用域名，也可本地拼装随机地址',
+        fields: [
+          { key: 'gptmail_base_url', label: 'API URL', placeholder: 'https://mail.chatgpt.org.uk' },
+          { key: 'gptmail_api_key', label: 'API Key', secret: true, placeholder: 'gpt-test' },
+          { key: 'gptmail_domain', label: '邮箱域名（可选）', placeholder: 'example.com' },
         ],
       },
       {
@@ -152,6 +152,8 @@ const TAB_ITEMS = [
           { key: 'cfworker_api_url', label: 'API URL', placeholder: 'https://apimail.example.com' },
           { key: 'cfworker_admin_token', label: '管理员 Token', secret: true },
           { key: 'cfworker_custom_auth', label: '站点密码', secret: true },
+          { key: 'cfworker_subdomain', label: '固定子域名', placeholder: 'mail / pool-a' },
+          { key: 'cfworker_random_subdomain', label: '随机子域名', type: 'boolean' },
           { key: 'cfworker_fingerprint', label: 'Fingerprint', placeholder: '6703363b...' },
         ],
       },
@@ -220,17 +222,6 @@ const TAB_ITEMS = [
         fields: [
           { key: 'team_manager_url', label: 'API URL', placeholder: 'https://your-tm.example.com' },
           { key: 'team_manager_key', label: 'API Key', secret: true },
-        ],
-      },
-      {
-        title: 'Sub2API',
-        desc: '注册成功后自动上传，账号页也支持按 sub2api-data 格式手动/批量上传；填写分组 ID 后会在导入完成后自动绑组',
-        fields: [
-          { key: 'sub2api_url', label: 'API URL', placeholder: 'https://your-sub2api.example.com' },
-          { key: 'sub2api_api_key', label: 'API Key', secret: true },
-          { key: 'sub2api_concurrency', label: '账号并发', placeholder: '默认 3' },
-          { key: 'sub2api_priority', label: '优先级', placeholder: '默认 50' },
-          { key: 'sub2api_group_ids', label: '分组 ID', placeholder: '多个用逗号分隔，例如 1,2,3' },
         ],
       },
       {
@@ -329,7 +320,7 @@ interface FieldConfig {
   key: string
   label: string
   placeholder?: string
-  type?: 'select' | 'input'
+  type?: 'select' | 'input' | 'boolean'
   secret?: boolean
 }
 
@@ -393,15 +384,23 @@ function parseStoredDomainList(value: unknown): string[] {
 function ConfigField({ field }: { field: FieldConfig }) {
   const [showSecret, setShowSecret] = useState(false)
   const options = SELECT_FIELDS[field.key]
+  const isBooleanField = field.type === 'boolean'
   const helpText =
     field.key === 'default_executor'
       ? '仅对支持的平台生效；ChatGPT、Cursor、Grok、Kiro、Tavily、Trae 支持浏览器模式，OpenBlockLabs 仅支持纯协议。'
       : undefined
 
   return (
-    <Form.Item label={field.label} name={field.key} extra={helpText}>
+    <Form.Item
+      label={field.label}
+      name={field.key}
+      extra={helpText}
+      valuePropName={isBooleanField ? 'checked' : undefined}
+    >
       {options ? (
         <Select options={options} style={{ width: '100%' }} />
+      ) : isBooleanField ? (
+        <Switch checkedChildren="开启" unCheckedChildren="关闭" />
       ) : field.secret ? (
         <Input.Password
           placeholder={field.placeholder}
@@ -1046,20 +1045,21 @@ export default function Settings() {
 
   useEffect(() => {
     apiFetch('/config').then((data) => {
+      if (!data.mail_provider) {
+        data.mail_provider = 'luckmail'
+      }
+      if (!data.gptmail_base_url) {
+        data.gptmail_base_url = 'https://mail.chatgpt.org.uk'
+      }
       if (!data.maliapi_base_url) {
         data.maliapi_base_url = 'https://maliapi.215.im/v1'
       }
       if (!data.luckmail_base_url) {
         data.luckmail_base_url = 'https://mails.luckyous.com/'
       }
-      if (!data.sub2api_url && data.sub2api_api_url) {
-        data.sub2api_url = data.sub2api_api_url
-      }
-      if (!data.sub2api_api_url && data.sub2api_url) {
-        data.sub2api_api_url = data.sub2api_url
-      }
       data.cfworker_domains = parseStoredDomainList(data.cfworker_domains)
       data.cfworker_enabled_domains = parseStoredDomainList(data.cfworker_enabled_domains)
+      data.cfworker_random_subdomain = parseBooleanConfigValue(data.cfworker_random_subdomain)
       form.setFieldsValue(data)
     })
   }, [form])
@@ -1082,6 +1082,7 @@ export default function Settings() {
       if (domains.length > 0) {
         values.cfworker_domain = ''
       }
+      values.cfworker_random_subdomain = parseBooleanConfigValue(values.cfworker_random_subdomain)
       if (!values.sub2api_url && values.sub2api_api_url) {
         values.sub2api_url = values.sub2api_api_url
       }
@@ -1094,6 +1095,7 @@ export default function Settings() {
         cfworker_domains: domains,
         cfworker_enabled_domains: enabledDomains,
         cfworker_domain: domains.length > 0 ? '' : values.cfworker_domain,
+        cfworker_random_subdomain: values.cfworker_random_subdomain,
         sub2api_url: values.sub2api_url,
         sub2api_api_url: values.sub2api_api_url,
       })

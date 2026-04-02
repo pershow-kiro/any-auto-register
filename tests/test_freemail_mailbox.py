@@ -1,54 +1,75 @@
 import unittest
+from unittest import mock
 
-from core.base_mailbox import FreemailMailbox, MailboxAccount
-
-
-class FakeResponse:
-    def __init__(self, payload):
-        self._payload = payload
-
-    def json(self):
-        return self._payload
-
-
-class FakeSession:
-    def __init__(self, payload):
-        self.payload = payload
-        self.calls = 0
-
-    def get(self, url, params=None, timeout=None):
-        self.calls += 1
-        return FakeResponse(self.payload)
+from core.base_mailbox import MailboxAccount, create_mailbox
 
 
 class FreemailMailboxTests(unittest.TestCase):
-    def test_wait_for_code_skips_excluded_codes(self):
-        mailbox = FreemailMailbox.__new__(FreemailMailbox)
-        mailbox.api = "https://mail.example.com"
-        mailbox._session = FakeSession(
-            [
-                {
-                    "id": 1,
-                    "verification_code": "111111",
-                    "preview": "Old code 111111",
-                    "subject": "OpenAI verification",
-                },
-                {
-                    "id": 2,
-                    "verification_code": "222222",
-                    "preview": "New code 222222",
-                    "subject": "OpenAI verification",
-                },
-            ]
+    def _build_mailbox(self):
+        mailbox = create_mailbox(
+            "freemail",
+            extra={"freemail_api_url": "https://freemail.example"},
         )
+        mailbox._session = mock.Mock()
+        return mailbox
+
+    @mock.patch("time.sleep", return_value=None)
+    def test_wait_for_code_skips_excluded_verification_code_field(self, _sleep):
+        mailbox = self._build_mailbox()
+        mailbox._session.get.side_effect = [
+            _response(
+                [
+                    {"id": "m1", "verification_code": "111111"},
+                ]
+            ),
+            _response(
+                [
+                    {"id": "m1", "verification_code": "111111"},
+                    {"id": "m2", "verification_code": "222222"},
+                ]
+            ),
+        ]
 
         code = mailbox.wait_for_code(
-            MailboxAccount(email="demo@example.com", account_id="demo@example.com"),
-            timeout=1,
+            MailboxAccount(email="demo@example.com"),
+            timeout=5,
             exclude_codes={"111111"},
         )
 
         self.assertEqual(code, "222222")
+        self.assertEqual(mailbox._session.get.call_count, 2)
+
+    @mock.patch("time.sleep", return_value=None)
+    def test_wait_for_code_skips_excluded_preview_extracted_code(self, _sleep):
+        mailbox = self._build_mailbox()
+        mailbox._session.get.side_effect = [
+            _response(
+                [
+                    {"id": "m1", "verification_code": None, "preview": "Your verification code is 111111"},
+                ]
+            ),
+            _response(
+                [
+                    {"id": "m1", "verification_code": None, "preview": "Your verification code is 111111"},
+                    {"id": "m2", "verification_code": None, "preview": "Your verification code is 222222"},
+                ]
+            ),
+        ]
+
+        code = mailbox.wait_for_code(
+            MailboxAccount(email="demo@example.com"),
+            timeout=5,
+            exclude_codes={"111111"},
+        )
+
+        self.assertEqual(code, "222222")
+        self.assertEqual(mailbox._session.get.call_count, 2)
+
+
+def _response(payload):
+    response = mock.Mock()
+    response.json.return_value = payload
+    return response
 
 
 if __name__ == "__main__":

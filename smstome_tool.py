@@ -29,7 +29,12 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional
 
 import httpx
-from selectolax.parser import HTMLParser
+try:
+    from selectolax.parser import HTMLParser
+except ImportError:
+    class HTMLParser:  # type: ignore[override]
+        def __init__(self, *_args, **_kwargs):
+            raise RuntimeError("selectolax is required for SMSToMe HTML parsing")
 from urllib.parse import urljoin, urlsplit
 
 try:

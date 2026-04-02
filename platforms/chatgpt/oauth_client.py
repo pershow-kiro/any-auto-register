@@ -12,7 +12,10 @@ try:
 except ImportError:
     import requests as curl_requests
 
-from .phone_service import SMSToMePhoneService
+try:
+    from .phone_service import SMSToMePhoneService
+except Exception:
+    SMSToMePhoneService = None
 from .utils import (
     FlowState,
     build_browser_headers,
@@ -1451,6 +1454,8 @@ class OAuthClient:
     def _handle_add_phone_verification(
         self, device_id, user_agent, sec_ch_ua, impersonate, state: FlowState
     ):
+        if SMSToMePhoneService is None:
+            raise RuntimeError("SMSToMe 依赖未安装，无法执行手机号验证流程")
         phone_service = SMSToMePhoneService(self.config, log_fn=self._log)
         if not phone_service.enabled:
             self._set_error(
