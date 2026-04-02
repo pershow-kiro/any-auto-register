@@ -113,6 +113,7 @@ class RegistrationEngineV2:
         result = RegistrationResult(success=False, logs=self.logs)
         try:
             last_error = ""
+            latest_pending_registration = None
             for attempt in range(self.max_retries):
                 try:
                     if attempt == 0:
@@ -164,17 +165,17 @@ class RegistrationEngineV2:
                         pending_registration = chatgpt_client.get_pending_registration()
                         last_error = f"注册流失败: {msg}"
                         if pending_registration and self.mail_provider in ("cloudmail", "cloud_mail"):
-                            self._log("检测到 Cloud Mail 可续注册账号，停止重试并保留账号信息")
-                            result.error_message = last_error
-                            result.metadata = {
-                                "pending_registration": pending_registration,
-                                "mail_provider": self.mail_provider,
-                            }
-                            return result
+                            latest_pending_registration = pending_registration
+                            self._log("检测到 Cloud Mail 可续注册账号，已记录待续注册信息，继续执行主流程")
                         if attempt < self.max_retries - 1 and self._should_retry(msg):
                             self._log(f"注册流失败，准备整流程重试: {msg}")
                             continue
                         result.error_message = last_error
+                        if latest_pending_registration and self.mail_provider in ("cloudmail", "cloud_mail"):
+                            result.metadata = {
+                                "pending_registration": latest_pending_registration,
+                                "mail_provider": self.mail_provider,
+                            }
                         return result
 
                     self._log("步骤 2/2: 优先复用注册会话提取 ChatGPT Session / AccessToken...")
@@ -278,6 +279,11 @@ class RegistrationEngineV2:
                     raise
 
             result.error_message = last_error or "注册失败"
+            if latest_pending_registration and self.mail_provider in ("cloudmail", "cloud_mail"):
+                result.metadata = {
+                    "pending_registration": latest_pending_registration,
+                    "mail_provider": self.mail_provider,
+                }
             return result
                 
         except Exception as e:

@@ -1678,6 +1678,11 @@ class FreemailMailbox(BaseMailbox):
         import re, time
 
         seen = set(before_ids or [])
+        exclude_codes = {
+            str(code).strip()
+            for code in (kwargs.get("exclude_codes") or set())
+            if code
+        }
         start = time.time()
         while time.time() - start < timeout:
             try:
@@ -1694,6 +1699,8 @@ class FreemailMailbox(BaseMailbox):
                     # 直接用 verification_code 字段
                     code = str(msg.get("verification_code") or "")
                     if code and code != "None":
+                        if exclude_codes and code in exclude_codes:
+                            continue
                         return code
                     # 兜底：从 preview 提取
                     text = (
@@ -1701,6 +1708,8 @@ class FreemailMailbox(BaseMailbox):
                     )
                     code = self._safe_extract(text, code_pattern)
                     if code:
+                        if exclude_codes and code in exclude_codes:
+                            continue
                         return code
             except Exception:
                 pass

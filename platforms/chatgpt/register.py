@@ -30,6 +30,7 @@ from .constants import (
     AccountStatus,
     TaskStatus,
 )
+from .utils import generate_device_id, seed_oai_device_cookie
 # from ..config.settings import get_settings  # removed: external dep
 
 
@@ -133,6 +134,7 @@ class RegistrationEngine:
         self.logs: list = []
         self._otp_sent_at: Optional[float] = None  # OTP 发送时间戳
         self._is_existing_account: bool = False  # 是否为已注册账号（用于自动登录）
+        self._device_id: Optional[str] = None  # 整个注册流程复用同一个 oai-did
 
     def _log(self, message: str, level: str = "info"):
         """记录日志"""
@@ -213,25 +215,28 @@ class RegistrationEngine:
             return False
 
     def _get_device_id(self) -> Optional[str]:
-        """获取 Device ID"""
+        """获取并复用 Device ID，避免验证码校验阶段出现会话不一致。"""
         try:
             if not self.oauth_start:
+                self._log("OAuth 流程未初始化，无法获取 Device ID", "error")
                 return None
 
-            response = self.session.get(
-                self.oauth_start.auth_url,
-                timeout=15
-            )
-            did = None
-            try:
-                did = self.session.cookies.get("oai-did", domain=".auth.openai.com")
-            except Exception:
-                pass
-            if not did:
-                for cookie in self.session.cookies.jar:
-                    if cookie.name == "oai-did":
-                        did = cookie.value
-                        break
+            if not self.session:
+                self.session = self.http_client.session
+
+            if not self._device_id:
+                self._device_id = generate_device_id()
+                self._log(f"生成 Device ID: {self._device_id}")
+            else:
+                self._log(f"复用 Device ID: {self._device_id}")
+
+            seed_oai_device_cookie(self.session, self._device_id)
+            response = self.session.get(self.oauth_start.auth_url, timeout=20)
+            # 访问 OAuth URL 后再次回写 cookie，确保后续请求继续使用同一 did。
+            seed_oai_device_cookie(self.session, self._device_id)
+            self._log(f"OAuth URL 访问状态: {response.status_code}")
+
+            did = self._device_id
             self._log(f"Device ID: {did}")
             return did
 
